@@ -77,6 +77,26 @@
         "name": "CizgiMax"
     },
     {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=https://dizigov.net/&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/mebularts/CloudstreamTR",
+        "fileSize": 18600,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "mebularts"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "DiziGov",
+        "description": "en yeni dizileri g\u00fcvenli ve h\u0131zl\u0131 \u015fekilde sunar.",
+        "url": "https://raw.githubusercontent.com/mebularts/CloudstreamTR/builds/DiziGov.cs3",
+        "name": "DiziGov"
+    },
+    {
         "iconUrl": "https://www.google.com/s2/favicons?domain=https://dizikorea.vip&sz=%size%",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/mebularts/CloudstreamTR",
