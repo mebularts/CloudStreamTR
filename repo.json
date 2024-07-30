@@ -1,0 +1,8 @@
+{
+    "name": "Turkish Providers Repository | @mebularts",
+    "description": "Türkçe içerikli eklenti havuzu",
+    "manifestVersion": 1,
+    "pluginLists": [
+      "https://raw.githubusercontent.com/mebularts/CloudstreamTR/builds/plugins.json"
+    ]
+}
