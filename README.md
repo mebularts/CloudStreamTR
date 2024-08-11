@@ -2,9 +2,9 @@
 
 [![Boyut](https://img.shields.io/github/repo-size/mebularts/CloudstreamTR?logo=git&logoColor=white&label=Boyut)](#)
 [![Görüntülenme](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https://github.com/mebularts/CloudstreamTR&title=Görüntülenme)](#)
-<a href="https://t.me/mebularts" target="_blank"><img src="https://img.shields.io/badge/☕️-Kahve Ismarla-ffdd00" title="İletişime Geç" style="padding-left:5px;"></a>
+<a href="https://t.me/mebularts" target="_blank"><img src="https://img.shields.io/badge/☕️-İletişime Geç-ffdd00" title="İletişime Geç" style="padding-left:5px;"></a>
 
-[![CloudStream Derleyici](https://img.shields.io/github/actions/workflow/status/mebularts/CloudstreamTR/Derleyici.yml?label=CloudStream%20Derleyici&logo=github)](https://github.com/mebularts/CloudstreamTR/actions/workflows/Derleyici.yml)
+[![CloudStream Derleyici](https://img.shields.io/github/actions/workflow/status/mebularts/Copy-Telegram-Content/Derleyici.yml?label=CloudStream%20Derleyici&logo=github)](https://github.com/mebularts/CloudstreamTR/actions/workflows/Derleyici.yml)
 
 _CloudStream için Türkçe yayın yapan sitelere ait eklentiler_
 
