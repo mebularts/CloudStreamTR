@@ -6,7 +6,7 @@
 
 [![CloudStream Derleyici](https://img.shields.io/github/actions/workflow/status/mebularts/Copy-Telegram-Content/Derleyici.yml?label=CloudStream%20Derleyici&logo=github)](https://github.com/mebularts/CloudstreamTR/actions/workflows/Derleyici.yml)
 
-_CloudStream için Türkçe yayın yapan sitelere ait eklentiler_
+_CloudStream için Türkçe yayın yapan sitelere ait eklentiler_ <br>
 Bu Kütüphane İnstagram Kullanıcıları için kopyalanmıştır.
 
 [Döküman](https://recloudstream.github.io/csdocs/) **━** [Resmi Site](https://dweb.link/ipns/cloudstream.on.fleek.co/) **━** [Wiki](https://cloudstream.miraheze.org/wiki/Main_Page)
