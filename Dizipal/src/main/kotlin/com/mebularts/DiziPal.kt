@@ -42,6 +42,7 @@ class DiziPal : MainAPI() {
         }
     }
 
+    // Ana sayfa menüsü (hafif)
     override val mainPage = mainPageOf(
         "$mainUrl/yeni-eklenen-bolumler" to "Yeni Eklenen Bölümler",
         "$mainUrl/yabanci-diziler"       to "Yabancı Diziler",
@@ -55,20 +56,23 @@ class DiziPal : MainAPI() {
 
         val items = when {
             request.data.contains("/yeni-eklenen-bolumler") -> {
-                doc.select("a[href^=\"/bolum/\"]").mapNotNull { it.toEpisodeAsSeriesCard() }
+                // /bolum/... linklerinden dizi kartı üret (mutlak + göreli destek)
+                doc.select("""a[href*="/bolum/"]""").mapNotNull { it.toEpisodeAsSeriesCard() }
             }
             request.data.contains("/yabanci-diziler") || request.data.contains("/anime") -> {
-                doc.select("a[href^=\"/series/\"]").distinctBy { it.attr("href") }.mapNotNull { it.toSeriesCard() }
+                doc.select("""a[href*="/series/"]""")
+                    .distinctBy { it.attr("href") }
+                    .mapNotNull { it.toSeriesCard() }
             }
             request.data.contains("/film") -> {
-                (doc.select("a[href^=\"/movies/\"]") + doc.select("a[href^=\"/film/\"] a[href^=\"/movies/\"]"))
+                (doc.select("""a[href*="/movies/"]""") + doc.select("""a[href*="/film/"] a[href*="/movies/"]"""))
                     .distinctBy { it.attr("href") }
                     .mapNotNull { it.toMovieCard() }
             }
             else -> emptyList()
         }
 
-        val hasNext = doc.select("a[rel=\"next\"], a.next, li.active + li > a").isNotEmpty()
+        val hasNext = doc.select("""a[rel="next"], a.next, li.active + li > a""").isNotEmpty()
         return newHomePageResponse(request.name, items, hasNext = hasNext)
     }
 
@@ -86,36 +90,43 @@ class DiziPal : MainAPI() {
         return fixUrlNull(src)
     }
 
+    private fun normalizeHref(href: String?): String? {
+        if (href.isNullOrBlank()) return null
+        return if (href.startsWith("http")) href else fixUrl(href)
+    }
+
     private fun Element.toSeriesCard(): SearchResponse? {
-        val href   = fixUrlNull(attr("href")) ?: return null
-        val title  = cardTitle() ?: href.substringAfterLast("/")
+        val href   = normalizeHref(attr("href")) ?: return null
+        val title  = cardTitle() ?: href.substringAfterLast("/").ifBlank { "Dizi" }
         val poster = posterUrlNearby()
         return newTvSeriesSearchResponse(title, href, TvType.TvSeries) { this.posterUrl = poster }
     }
 
     private fun Element.toMovieCard(): SearchResponse? {
-        val href   = fixUrlNull(attr("href")) ?: return null
-        val title  = cardTitle() ?: href.substringAfterLast("/")
+        val href   = normalizeHref(attr("href")) ?: return null
+        val title  = cardTitle() ?: href.substringAfterLast("/").ifBlank { "Film" }
         val poster = posterUrlNearby()
         return newMovieSearchResponse(title, href, TvType.Movie) { this.posterUrl = poster }
     }
 
-    /** /yeni-eklenen-bolumler → /bolum/... linkinden /series/<slug> çıkar */
+    /** /yeni-eklenen-bolumler sayfasındaki /bolum/... linkinden /series/<slug> üret */
     private fun Element.toEpisodeAsSeriesCard(): SearchResponse? {
-        val href = attr("href").ifBlank { return null }
-        val slug = extractSeriesSlugFromEpisodePath(href) ?: return null
-        val seriesUrl = "$mainUrl/series/$slug"
-        val title  = cardTitle() ?: slug.replace("-", " ")
+        val rawHref  = normalizeHref(attr("href")) ?: return null
+        val seriesSlug = extractSeriesSlugFromEpisodeUrl(rawHref) ?: return null
+        val seriesUrl  = "$mainUrl/series/$seriesSlug"
+        val title  = cardTitle() ?: seriesSlug.replace("-", " ")
         val poster = posterUrlNearby()
         return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { this.posterUrl = poster }
     }
 
-    /** /bolum/the-last-of-us-2x4-c13 → "the-last-of-us" */
-    private fun extractSeriesSlugFromEpisodePath(path: String): String? {
-        val p = path.removePrefix("/").removePrefix("bolum/")
+    /** https://dizipal1103.com/bolum/the-last-of-us-2x4-c13 → "the-last-of-us" */
+    private fun extractSeriesSlugFromEpisodeUrl(href: String): String? {
+        val idx = href.indexOf("/bolum/")
+        if (idx < 0) return null
+        val p = href.substring(idx + "/bolum/".length)
         if (p.isBlank()) return null
-        val noCode = p.replace(Regex("-c\\d+$"), "")
-        return noCode.replace(Regex("-\\d+x\\d+.*$"), "")
+        val noCode = p.replace(Regex("-c\\d+$"), "")          // sondaki -c13 vb.
+        return noCode.replace(Regex("-\\d+x\\d+.*$"), "")     // sondaki 2x4 vb.
     }
 
     // ---------- Arama ----------
@@ -142,8 +153,8 @@ class DiziPal : MainAPI() {
             interceptor = interceptor, referer = "$mainUrl/").document
 
         val results = mutableListOf<SearchResponse>()
-        doc.select("a[href^=\"/series/\"]").forEach { it.toSeriesCard()?.let(results::add) }
-        doc.select("a[href^=\"/movies/\"]").forEach { it.toMovieCard()?.let(results::add) }
+        doc.select("""a[href*="/series/"]""").forEach { it.toSeriesCard()?.let(results::add) }
+        doc.select("""a[href*="/movies/"]""").forEach { it.toMovieCard()?.let(results::add) }
         return results
     }
 
@@ -151,7 +162,7 @@ class DiziPal : MainAPI() {
 
     private fun SearchItem.toPostSearchResult(): SearchResponse {
         val title = if (this.trTitle.isNullOrBlank()) this.title else this.trTitle
-        val href  = fixUrl("$mainUrl${this.url}")
+        val href  = normalizeHref("$mainUrl${this.url}")!!
         val posterUrl = fixUrlNull(this.poster)
         return if (this.type == "series") {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) { this.posterUrl = posterUrl }
@@ -168,7 +179,7 @@ class DiziPal : MainAPI() {
         val poster = fixUrlNull(
             doc.selectFirst("[property='og:image']")?.attr("content")
                 ?: doc.selectFirst("meta[name='twitter:image']")?.attr("content")
-                ?: doc.selectFirst("img[src*=\"/uploads/\"]")?.attr("src")
+                ?: doc.selectFirst("""img[src*="/uploads/"]""")?.attr("src")
         )
 
         val titleMeta = doc.selectFirst("h1, .g-title div, .title h1, meta[property='og:title']")
@@ -177,8 +188,8 @@ class DiziPal : MainAPI() {
         return when {
             url.contains("/series/") -> {
                 val title = titleMeta ?: doc.title().substringBefore("|").trim()
-                val eps = doc.select("a[href^=\"/bolum/\"]").mapNotNull { a ->
-                    val ehref = fixUrlNull(a.attr("href")) ?: return@mapNotNull null
+                val eps = doc.select("""a[href*="/bolum/"]""").mapNotNull { a ->
+                    val ehref = normalizeHref(a.attr("href")) ?: return@mapNotNull null
                     val se = Regex("(\\d+)x(\\d+)").find(ehref)
                     val s  = se?.groupValues?.getOrNull(1)?.toIntOrNull()
                     val e  = se?.groupValues?.getOrNull(2)?.toIntOrNull()
@@ -218,8 +229,8 @@ class DiziPal : MainAPI() {
         val page = app.get(data, interceptor = interceptor, referer = "$mainUrl/").document
 
         // 1) iframeler → extractor veya m3u8
-        page.select("iframe[src]").forEach { iframe ->
-            val src = fixUrlNull(iframe.attr("src")) ?: return@forEach
+        page.select("""iframe[src]""").forEach { iframe ->
+            val src = normalizeHref(iframe.attr("src")) ?: return@forEach
             Log.d("DZP", "iframe » $src")
 
             if (loadExtractor(src, "$mainUrl/", subtitleCallback, callback)) return@forEach
