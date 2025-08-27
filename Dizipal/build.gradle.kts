@@ -1,28 +1,18 @@
-version = 13
-
-plugins {
-    id("com.android.library")
-    kotlin("android")
-    id("com.lagradost.cloudstream3.gradle")
-}
-
-android {
-    namespace = "com.mebularts.dizipal"
-    compileSdk = 34
-    defaultConfig {
-        minSdk = 21
-    }
-    buildFeatures { buildConfig = false }
-}
+version = 12
 
 cloudstream {
     authors     = listOf("mebularts", "muratcesmecioglu")
     language    = "tr"
-    description = "En yeni dizi/filmleri hızlıca listeler."
+    description = "en yeni dizileri güvenli ve hızlı şekilde sunar."
+
     /**
-     * 0: Down, 1: Ok, 2: Slow, 3: Beta
-     */
-    status  = 1
+     * Status int as the following:
+     * 0: Down
+     * 1: Ok
+     * 2: Slow
+     * 3: Beta only
+    **/
+    status  = 1 // will be 3 if unspecified
     tvTypes = listOf("TvSeries", "Movie")
-    iconUrl = "https://www.google.com/s2/favicons?domain=dizipal1103.com&sz=%size%"
+    iconUrl = "https://dizipal1103.com/assets/images/logo-dpal.svg?V=2"
 }
