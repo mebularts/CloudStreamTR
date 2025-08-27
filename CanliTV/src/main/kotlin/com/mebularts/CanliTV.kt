@@ -116,7 +116,7 @@ class CanliTV : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(
+override suspend fun loadLinks(
     data: String,
     isCasting: Boolean,
     subtitleCallback: (SubtitleFile) -> Unit,
@@ -132,20 +132,23 @@ class CanliTV : MainAPI() {
 
     val isM3u8 = loadData.url.contains(".m3u8", ignoreCase = true)
 
-    @Suppress("DEPRECATION") // newExtractorLink sürüm uyumsuzluğu nedeniyle
+    // >> yeni API'ye uygun çağrı
     callback.invoke(
-        ExtractorLink(
-            source  = this.name,
-            name    = this.name,
-            url     = loadData.url,
-            referer = kanal.headers["referrer"] ?: "",
-            quality = Qualities.Unknown.value,
-            isM3u8  = isM3u8,
-            headers = kanal.headers
-        )
+        newExtractorLink(
+            source = this.name,
+            name = loadData.title,         // UI'da kanal adı görünsün
+            url = loadData.url,
+            type = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+        ) {
+            // Bu alanlar initializer içinde set edilir
+            this.referer = kanal.headers["referrer"] ?: ""
+            this.headers = kanal.headers
+            this.quality = Qualities.Unknown.value
+        }
     )
     return true
 }
+
 
 
     data class LoadData(val url: String, val title: String, val poster: String, val group: String, val nation: String)
