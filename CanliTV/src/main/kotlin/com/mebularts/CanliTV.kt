@@ -117,35 +117,36 @@ class CanliTV : MainAPI() {
     }
 
     override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        val loadData = fetchDataFromUrlOrJson(data)
-        Log.d("IPTV", "loadData » $loadData")
+    data: String,
+    isCasting: Boolean,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+): Boolean {
+    val loadData = fetchDataFromUrlOrJson(data)
+    Log.d("IPTV", "loadData » $loadData")
 
-        val kanallar = fetchPlaylist()
-        val kanal = kanallar.items.firstOrNull { it.url == loadData.url }
-            ?: kanallar.items.first { (it.title ?: "") == loadData.title }
-        Log.d("IPTV", "kanal » $kanal")
+    val kanallar = fetchPlaylist()
+    val kanal = kanallar.items.firstOrNull { it.url == loadData.url }
+        ?: kanallar.items.first { (it.title ?: "") == loadData.title }
+    Log.d("IPTV", "kanal » $kanal")
 
-        val isM3u8 = loadData.url.contains(".m3u8", ignoreCase = true)
+    val isM3u8 = loadData.url.contains(".m3u8", ignoreCase = true)
 
-        // DEPRECATED ctor yerine newExtractorLink kullan
-        callback.invoke(
-            newExtractorLink(
-                source = this.name,
-                name = this.name,
-                url = loadData.url,
-                referer = kanal.headers["referrer"] ?: "",
-                quality = Qualities.Unknown.value,
-                isM3u8 = isM3u8,
-                headers = kanal.headers
-            )
+    @Suppress("DEPRECATION") // newExtractorLink sürüm uyumsuzluğu nedeniyle
+    callback.invoke(
+        ExtractorLink(
+            source  = this.name,
+            name    = this.name,
+            url     = loadData.url,
+            referer = kanal.headers["referrer"] ?: "",
+            quality = Qualities.Unknown.value,
+            isM3u8  = isM3u8,
+            headers = kanal.headers
         )
-        return true
-    }
+    )
+    return true
+}
+
 
     data class LoadData(val url: String, val title: String, val poster: String, val group: String, val nation: String)
 
