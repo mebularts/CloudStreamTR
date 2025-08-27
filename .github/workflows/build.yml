@@ -22,12 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "'src' Depo Kontrolü"
-        uses: actions/checkout@master
+        uses: actions/checkout@v4
         with:
           path: "src"
 
       - name: "'build' Depo Kontrolü"
-        uses: actions/checkout@master
+        uses: actions/checkout@v4
         with:
           ref: "builds"
           path: "builds"
@@ -35,22 +35,29 @@ jobs:
       - name: Eski Derlemeleri Temizle
         run: rm $GITHUB_WORKSPACE/builds/*.cs3 || true
 
-      - name: JDK 11 Ayarla
+      - name: JDK 17 Ayarla (SDK için)
         uses: actions/setup-java@v4
         with:
-          distribution: adopt
-          java-version: 11
+          distribution: temurin
+          java-version: '17'
 
       - name: Android SDK Ayarla
-        uses: android-actions/setup-android@v2
+        uses: android-actions/setup-android@v3
+
+      - name: JDK 11 Ayarla (Gradle için)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
 
       - name: Eklentileri Derle
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
           ./gradlew make makePluginsJson
-          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds || true
           cp build/plugins.json $GITHUB_WORKSPACE/builds
+
 
       - name: Derlemeleri Yükle
         run: |
