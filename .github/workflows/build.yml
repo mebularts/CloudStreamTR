@@ -35,34 +35,30 @@ jobs:
       - name: Eski Derlemeleri Temizle
         run: rm $GITHUB_WORKSPACE/builds/*.cs3 || true
 
-      - name: JDK 17 Ayarla (SDK için)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+# JDK 17 → SDK → (JDK 17 kalacak, AGP 8.7.3 bunu istiyor)
+- name: JDK 17 Ayarla
+  uses: actions/setup-java@v4
+  with:
+    distribution: temurin
+    java-version: '17'
 
-      - name: Android SDK Ayarla
-        uses: android-actions/setup-android@v3
+- name: Android SDK Ayarla
+  uses: android-actions/setup-android@v3
 
-      - name: JDK 11 Ayarla (Gradle için)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '11'
+# (İsteğe bağlı) wrapper'ı 8.8'e sabitle – repo içinde güncellediysek gerek yok
+- name: Gradle wrapper'ı 8.8'e sabitle
+  run: |
+    cd $GITHUB_WORKSPACE/src
+    sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.8-bin.zip#' gradle/wrapper/gradle-wrapper.properties
 
-      # (İsteğe bağlı) wrapper'ı sabitle
-      - name: Gradle wrapper'ı 7.5'e sabitle
-        run: |
-          cd $GITHUB_WORKSPACE/src
-          sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-bin.zip#' gradle/wrapper/gradle-wrapper.properties
+- name: Eklentileri Derle
+  run: |
+    cd $GITHUB_WORKSPACE/src
+    chmod +x gradlew
+    ./gradlew --no-daemon :DiziPal:make makePluginsJson
+    cp **/build/*.cs3 $GITHUB_WORKSPACE/builds || true
+    cp build/plugins.json $GITHUB_WORKSPACE/builds
 
-      - name: Eklentileri Derle
-        run: |
-          cd $GITHUB_WORKSPACE/src
-          chmod +x gradlew
-          ./gradlew --no-daemon clean make makePluginsJson
-          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds || true
-          cp build/plugins.json $GITHUB_WORKSPACE/builds
 
 
 
