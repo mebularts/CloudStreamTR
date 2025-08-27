@@ -1,6 +1,7 @@
 plugins {
     id("com.android.library")
     kotlin("android")
+    id("com.lagradost.cloudstream3.gradle")
 }
 
 android {
@@ -13,12 +14,8 @@ android {
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = false
-        }
-        debug {
-            isMinifyEnabled = false
-        }
+        release { isMinifyEnabled = false }
+        debug { isMinifyEnabled = false }
     }
 
     sourceSets {
@@ -29,8 +26,12 @@ android {
     }
 }
 
-dependencies {
-    // Cloudstream’ın API’si zaten üst projede tanımlı oluyor.
-    // Eğer monorepo değil de tek başına derliyorsan (nadiren gerek):
-    // implementation("com.github.LagradOst:cloudstream:3.5.0") // örnek
+cloudstream {
+    // mağaza/metaveri
+    language = "tr"
+    description = "yabancidizi.so kaynağı – diziler/filmler, sezon/bölüm ve m3u8/embed yakalama"
+    authors = listOf("mebularts")
+    tvTypes = listOf("TvSeries", "Movie")
+    iconUrl = "https://yabancidizi.so/favicon.ico"
+    // status = 1 // (opsiyonel) 1: working, 2: beta, vs. Cloudstream sürümüne göre değişebilir
 }
