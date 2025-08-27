@@ -1,58 +1,59 @@
-**⚠️ This is currently under development, dont use it yet if you're not comfortable with constantly merging new changes**
+# DiziPal — Cloudstream Plugin (Standalone Repo)
 
-# `Cloudstream3 Plugin Repo Template`
+Bu depo **Cloudstream** uygulaması için **DiziPal** sağlayıcısını içerir. `mainUrl` güncel olarak **https://dizipal1103.com** şeklindedir.
 
-Template for a [Cloudstream3](https://github.com/recloudstream) plugin repo
+## Yerel Derleme (önerilen)
+1. **JDK 17** kurulu olmalı.
+2. Android SDK kurulu olmalı (platform 34 / build-tools 34.0.0 yeterli).
+3. Terminalden çalıştırın:
+   ```bash
+   # İlk defa ise wrapper'ı üretmek için (Gradle yüklü ise)
+   gradle wrapper
 
-**⚠️ Make sure you check "Include all branches" when using this template**
+   ./gradlew --no-daemon clean make makePluginsJson
+   ```
+4. Çıktılar:
+   - `.cs3` dosyası: `DiziPal/build/` altında
+   - `plugins.json`: `build/plugins.json` (root altında)
 
- 
-## Getting started with writing your first plugin
+> Not: Wrapper jar bu zipte dahil değildir. Sistemde Gradle kurulu ise `gradle wrapper` komutuyla wrapper oluşur ve `./gradlew` kullanılabilir.
 
-This template includes 1 example plugin.
+## GitHub Actions (harici aksiyon kullanmadan)
+`.github/workflows/build.yml` dosyası **hiç dış action** kullanmaz. `master` (veya `main`) dalına push yaptığınızda `.cs3` ve `plugins.json` üretir ve **Release ('builds' tag)** altına asset olarak yükler. `repo.json` içinde `pluginLists` URL'i olarak release yolunu kullanabilirsiniz:
 
-1. Open the root build.gradle.kts, read the comments and replace all the placeholders
-2. Familiarize yourself with the project structure. Most files are commented
-3. Build or deploy your first plugin using:
-   - Windows: `.\gradlew.bat ExampleProvider:make` or `.\gradlew.bat ExampleProvider:deployWithAdb`
-   - Linux & Mac: `./gradlew ExampleProvider:make` or `./gradlew ExampleProvider:deployWithAdb`
+```
+https://github.com/<owner>/<repo>/releases/download/builds/plugins.json
+```
 
+## Cloudstream'e ekleme (repo.json)
+Kökte bir `repo.json` oluşturup şunu ekleyin (örnek):
 
-## Granting All Files Access on Newer Android Devices
+```json
+{
+  "name": "Mebularts TR Repo",
+  "description": "Cloudstream eklentileri",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://github.com/<owner>/<repo>/releases/download/builds/plugins.json"
+  ]
+}
+```
 
-For local plugin testing, you need to grant the app "All Files Access" on newer Android devices (Android 11 and above). Here’s how to do it:
+## Dizin Yapısı
+```
+DiziPal/
+  build.gradle.kts
+  src/main/AndroidManifest.xml
+  src/main/kotlin/com/mebularts/DiziPal.kt
+  src/main/kotlin/com/mebularts/DiziPalModels.kt
+  src/main/kotlin/com/mebularts/DiziPalPlugin.kt
+  src/main/kotlin/com/mebularts/bakalim.py
+.github/workflows/build.yml
+settings.gradle.kts
+build.gradle.kts
+gradle.properties
+repo.json
+```
 
-### Using ADB
-
-* `adb shell appops set --uid PACKAGE_NAME MANAGE_EXTERNAL_STORAGE allow`
-* Replace `PACKAGE_NAME` with the name of the package for the Cloudstream3 version you are using:
-   - debug: `com.lagradost.cloudstream3.prerelease.debug`
-   - prerelease: `com.lagradost.cloudstream3.prerelease`
-   - stable: `com.lagradost.cloudstream3`
-
-### Manually
-
-1. **Open Settings**: Go to your device’s Settings menu.
-
-2. **Navigate to Special Access**:
-   - Tap on "Apps & notifications" or "Apps".
-   - Select "Special app access" or "Special access".
-
-3. **Select All Files Access**:
-   - Tap on "All files access".
-   - It may be under the three vertical dots menu towards the top of the screen.
-
-4. **Grant Access to the App**: Find the app in the list and tap on it to toggle it, if it is not already enabled.
-
-6. **Restart the App**: Close and reopen the app to apply the changes.
-
-
-## License
-
-Everything in this repo is released into the public domain. You may use it however you want with no conditions whatsoever
-
-
-## Attribution
-
-This template as well as the gradle plugin and the whole plugin system is **heavily** based on [Aliucord](https://github.com/Aliucord).
-*Go use it, it's a great mobile discord client mod!*
+## Uyarı
+Hedef sitelerin kullanım şartlarına ve yasalara uyduğunuzdan emin olun. Bu proje yalnızca teknik entegrasyon ve eklenti geliştirme örneği olarak sağlanmıştır.
