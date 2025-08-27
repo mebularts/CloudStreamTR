@@ -12,6 +12,11 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import java.nio.charset.Charset
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class DiziPal : MainAPI() {
     override var mainUrl              = "https://dizipal1103.com"
@@ -25,14 +30,13 @@ class DiziPal : MainAPI() {
 
     // Cloudflare
     override var sequentialMainPage = true
-
     private val cloudflareKiller by lazy { CloudflareKiller() }
     private val interceptor      by lazy { CloudflareInterceptor(cloudflareKiller) }
 
     class CloudflareInterceptor(private val cloudflareKiller: CloudflareKiller) : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
-            val req  = chain.request()
-            val res  = chain.proceed(req)
+            val req = chain.request()
+            val res = chain.proceed(req)
             val body = res.peekBody(1024 * 1024).string()
             val doc  = runCatching { Jsoup.parse(body) }.getOrNull()
             val title = doc?.selectFirst("title")?.text()?.trim().orEmpty()
@@ -42,41 +46,75 @@ class DiziPal : MainAPI() {
         }
     }
 
-    // Ana sayfa menüsü (hafif)
+    /* -------------------- MainPage -------------------- */
+
+    // Sitenin menüsüyle uyumlu ana sekmeler
     override val mainPage = mainPageOf(
-        "$mainUrl/yeni-eklenen-bolumler" to "Yeni Eklenen Bölümler",
-        "$mainUrl/yabanci-diziler"       to "Yabancı Diziler",
-        "$mainUrl/film"                  to "Yeni Filmler",
-        "$mainUrl/anime"                 to "Anime"
+        "${mainUrl}/diziler/son-bolumler"                          to "Son Bölümler",
+        "${mainUrl}/diziler"                                       to "Yeni Diziler",
+        "${mainUrl}/filmler"                                       to "Yeni Filmler",
+        "${mainUrl}/koleksiyon/netflix"                            to "Netflix",
+        "${mainUrl}/koleksiyon/exxen"                              to "Exxen",
+        "${mainUrl}/koleksiyon/blutv"                              to "BluTV",
+        "${mainUrl}/koleksiyon/disney"                             to "Disney+",
+        "${mainUrl}/koleksiyon/amazon-prime"                       to "Amazon Prime",
+        "${mainUrl}/koleksiyon/tod-bein"                           to "TOD (beIN)",
+        "${mainUrl}/koleksiyon/gain"                               to "Gain",
+        "${mainUrl}/tur/mubi"                                      to "Mubi",
+        "${mainUrl}/diziler?kelime=&durum=&tur=26&type=&siralama=" to "Anime",
+        "${mainUrl}/diziler?kelime=&durum=&tur=5&type=&siralama="  to "Bilimkurgu Dizileri",
+        "${mainUrl}/tur/bilimkurgu"                                to "Bilimkurgu Filmleri",
+        "${mainUrl}/diziler?kelime=&durum=&tur=11&type=&siralama=" to "Komedi Dizileri",
+        "${mainUrl}/tur/komedi"                                    to "Komedi Filmleri",
+        "${mainUrl}/diziler?kelime=&durum=&tur=4&type=&siralama="  to "Belgesel Dizileri",
+        "${mainUrl}/tur/belgesel"                                  to "Belgesel Filmleri",
+        "${mainUrl}/diziler?kelime=&durum=&tur=25&type=&siralama=" to "Erotik Diziler",
+        "${mainUrl}/tur/erotik"                                    to "Erotik Filmler",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=1&type=&siralama="  to "Aile",            // ! Fazla kategori olduğu için geç yükleniyor..
+        // "${mainUrl}/diziler?kelime=&durum=&tur=2&type=&siralama="  to "Aksiyon",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=3&type=&siralama="  to "Animasyon",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=4&type=&siralama="  to "Belgesel",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=6&type=&siralama="  to "Biyografi",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=7&type=&siralama="  to "Dram",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=8&type=&siralama="  to "Fantastik",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=9&type=&siralama="  to "Gerilim",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=10&type=&siralama=" to "Gizem",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=12&type=&siralama=" to "Korku",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=13&type=&siralama=" to "Macera",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=14&type=&siralama=" to "Müzik",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=16&type=&siralama=" to "Romantik",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=17&type=&siralama=" to "Savaş",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=24&type=&siralama=" to "Yerli",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=18&type=&siralama=" to "Spor",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=19&type=&siralama=" to "Suç",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=20&type=&siralama=" to "Tarih",
+        // "${mainUrl}/diziler?kelime=&durum=&tur=21&type=&siralama=" to "Western",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = request.data.addPage(page)
         val doc = app.get(url, interceptor = interceptor).document
-
-        val items = when {
+        val list = when {
             request.data.contains("/yeni-eklenen-bolumler") -> {
-                // /bolum/... linklerinden dizi kartı üret (mutlak + göreli destek)
-                doc.select("""a[href*="/bolum/"]""").mapNotNull { it.toEpisodeAsSeriesCard() }
+                // Kartlar bölüm linki verebiliyor — dizi kartına dönüştürmeye çalış
+                // Önce aynı kartta varsa doğrudan /series/ linkini kullan
+                val seriesLinks = doc.select("""a[href*="/series/"]""").mapNotNull { it.toSeriesCard() }
+                if (seriesLinks.isNotEmpty()) seriesLinks
+                else doc.select("""a[href*="/bolum/"]""").mapNotNull { it.toEpisodeAsSeriesCard() }
             }
-            request.data.contains("/yabanci-diziler") || request.data.contains("/anime") -> {
-                doc.select("""a[href*="/series/"]""")
-                    .distinctBy { it.attr("href") }
-                    .mapNotNull { it.toSeriesCard() }
+            request.data.contains("/yabanci-dizi-izle") || request.data.contains("/anime") -> {
+                doc.select("""a[href*="/series/"]""").distinctBy { it.attr("href") }.mapNotNull { it.toSeriesCard() }
             }
-            request.data.contains("/film") -> {
-                (doc.select("""a[href*="/movies/"]""") + doc.select("""a[href*="/film/"] a[href*="/movies/"]"""))
-                    .distinctBy { it.attr("href") }
-                    .mapNotNull { it.toMovieCard() }
+            request.data.contains("/hd-film-izle") -> {
+                doc.select("""a[href*="/movies/"]""").distinctBy { it.attr("href") }.mapNotNull { it.toMovieCard() }
             }
             else -> emptyList()
         }
-
         val hasNext = doc.select("""a[rel="next"], a.next, li.active + li > a""").isNotEmpty()
-        return newHomePageResponse(request.name, items, hasNext = hasNext)
+        return newHomePageResponse(request.name, list, hasNext = hasNext)
     }
 
-    // ---------- Helpers ----------
+    /* -------------------- Helpers (cards) -------------------- */
 
     private fun Element.cardTitle(): String? {
         return attr("title").takeIf { it.isNotBlank() }
@@ -90,10 +128,8 @@ class DiziPal : MainAPI() {
         return fixUrlNull(src)
     }
 
-    private fun normalizeHref(href: String?): String? {
-        if (href.isNullOrBlank()) return null
-        return if (href.startsWith("http")) href else fixUrl(href)
-    }
+    private fun normalizeHref(href: String?): String? =
+        if (href.isNullOrBlank()) null else if (href.startsWith("http")) href else fixUrl(href)
 
     private fun Element.toSeriesCard(): SearchResponse? {
         val href   = normalizeHref(attr("href")) ?: return null
@@ -109,30 +145,39 @@ class DiziPal : MainAPI() {
         return newMovieSearchResponse(title, href, TvType.Movie) { this.posterUrl = poster }
     }
 
-    /** /yeni-eklenen-bolumler sayfasındaki /bolum/... linkinden /series/<slug> üret */
+    /** /yeni-eklenen-bolumler → bölüm linkini dizi kartına dönüştür. */
     private fun Element.toEpisodeAsSeriesCard(): SearchResponse? {
-        val rawHref  = normalizeHref(attr("href")) ?: return null
-        val seriesSlug = extractSeriesSlugFromEpisodeUrl(rawHref) ?: return null
-        val seriesUrl  = "$mainUrl/series/$seriesSlug"
-        val title  = cardTitle() ?: seriesSlug.replace("-", " ")
+        val raw = normalizeHref(attr("href")) ?: return null
+        val seriesUrl = guessSeriesUrlFromEpisode(raw) ?: return null
+        val title  = cardTitle() ?: seriesUrl.substringAfterLast("/").replace("-", " ")
         val poster = posterUrlNearby()
         return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { this.posterUrl = poster }
     }
 
-    /** https://dizipal1103.com/bolum/the-last-of-us-2x4-c13 → "the-last-of-us" */
-    private fun extractSeriesSlugFromEpisodeUrl(href: String): String? {
-        val idx = href.indexOf("/bolum/")
-        if (idx < 0) return null
-        val p = href.substring(idx + "/bolum/".length)
-        if (p.isBlank()) return null
-        val noCode = p.replace(Regex("-c\\d+$"), "")          // sondaki -c13 vb.
-        return noCode.replace(Regex("-\\d+x\\d+.*$"), "")     // sondaki 2x4 vb.
+    /** https://dizipal1103.com/bolum/modern-kadin-1x1-c05 → https://dizipal1103.com/series/modern-kadin(-cXX?) */
+    private fun guessSeriesUrlFromEpisode(epUrl: String): String? {
+        val path = epUrl.substringAfter("/bolum/", "")
+        if (path.isBlank()) return null
+        // Bölüm kalıbını kes: ...-<S>x<E>(-cNN)?
+        val base = path
+            .replace(Regex("-\\d+x\\d+(-c\\d+)?$"), "") // -1x1 veya -1x1-c05 sonunu at
+            .substringBefore("?")
+        // Örneklerde seriler bazen -cNN ile, bazen onsuz. Önce -cNN’li dene, 404 olursa site yönlendirebilir.
+        return "$mainUrl/series/$base"
     }
 
-    // ---------- Arama ----------
+    /* -------------------- Search -------------------- */
+
+    data class SearchItem(
+        val title: String,
+        val trTitle: String? = null,
+        val url: String,
+        val poster: String? = null,
+        val type: String // "series" | "movie"
+    )
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // JSON autocomplete varsa dene
+        // JSON autocomplete
         runCatching {
             val res = app.post(
                 "$mainUrl/api/search-autocomplete",
@@ -148,14 +193,14 @@ class DiziPal : MainAPI() {
             return map.values.map { it.toPostSearchResult() }
         }
 
-        // HTML arama (fallback)
+        // HTML fallback
         val doc = app.get("$mainUrl/arama-yap?keyword=${query.encodeURL()}",
             interceptor = interceptor, referer = "$mainUrl/").document
 
-        val results = mutableListOf<SearchResponse>()
-        doc.select("""a[href*="/series/"]""").forEach { it.toSeriesCard()?.let(results::add) }
-        doc.select("""a[href*="/movies/"]""").forEach { it.toMovieCard()?.let(results::add) }
-        return results
+        val out = mutableListOf<SearchResponse>()
+        doc.select("""a[href*="/series/"]""").forEach { it.toSeriesCard()?.let(out::add) }
+        doc.select("""a[href*="/movies/"]""").forEach { it.toMovieCard()?.let(out::add) }
+        return out
     }
 
     override suspend fun quickSearch(query: String) = search(query)
@@ -171,7 +216,7 @@ class DiziPal : MainAPI() {
         }
     }
 
-    // ---------- Load ----------
+    /* -------------------- Load (details) -------------------- */
 
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url, interceptor = interceptor, referer = "$mainUrl/").document
@@ -188,19 +233,22 @@ class DiziPal : MainAPI() {
         return when {
             url.contains("/series/") -> {
                 val title = titleMeta ?: doc.title().substringBefore("|").trim()
+
+                // Bölümler: sayfadaki tüm /bolum/ linkleri
                 val eps = doc.select("""a[href*="/bolum/"]""").mapNotNull { a ->
-                    val ehref = normalizeHref(a.attr("href")) ?: return@mapNotNull null
-                    val se = Regex("(\\d+)x(\\d+)").find(ehref)
+                    val href = normalizeHref(a.attr("href")) ?: return@mapNotNull null
+                    val se = Regex("(\\d+)x(\\d+)").find(href)
                     val s  = se?.groupValues?.getOrNull(1)?.toIntOrNull()
                     val e  = se?.groupValues?.getOrNull(2)?.toIntOrNull()
                     val en = a.attr("title").ifBlank { a.text() }.ifBlank { "Bölüm" }
 
-                    newEpisode(ehref) {
+                    newEpisode(href) {
                         name = en
                         season = s
                         episode = e
                     }
                 }
+
                 newTvSeriesLoadResponse(title, url, TvType.TvSeries, eps) {
                     this.posterUrl = poster
                 }
@@ -217,7 +265,9 @@ class DiziPal : MainAPI() {
         }
     }
 
-    // ---------- Linkler ----------
+    /* -------------------- Links (player) -------------------- */
+
+    data class EncPayload(val ciphertext: String, val iv: String, val salt: String)
 
     override suspend fun loadLinks(
         data: String,
@@ -228,17 +278,43 @@ class DiziPal : MainAPI() {
         Log.d("DZP", "data » $data")
         val page = app.get(data, interceptor = interceptor, referer = "$mainUrl/").document
 
-        // 1) iframeler → extractor veya m3u8
-        page.select("""iframe[src]""").forEach { iframe ->
-            val src = normalizeHref(iframe.attr("src")) ?: return@forEach
-            Log.d("DZP", "iframe » $src")
+        // 1) Şifreli payload + appCKey → çöz
+        val decrypted = runCatching { decryptFromPage(page) }.getOrNull()
+        if (!decrypted.isNullOrBlank()) {
+            // Önce m3u8 ara
+            Regex("""https?://[^\s"']+\.m3u8[^\s"']*""")
+                .findAll(decrypted)
+                .map { it.value }
+                .distinct()
+                .forEach { m3u ->
+                    M3u8Helper.generateM3u8(
+                        source    = name,
+                        name      = name,
+                        streamUrl = fixUrl(m3u),
+                        referer   = "$mainUrl/"
+                    ).forEach(callback)
+                }
+            if (Regex("""\.m3u8""").containsMatchIn(decrypted)) return true
 
-            if (loadExtractor(src, "$mainUrl/", subtitleCallback, callback)) return@forEach
+            // Embed varsa extractor
+            Regex("""https?://[^\s"']+""")
+                .findAll(decrypted)
+                .map { it.value }
+                .distinct()
+                .forEach { url ->
+                    if (loadExtractor(url, "$mainUrl/", subtitleCallback, callback)) return true
+                }
+        }
 
-            val body = app.get(src, referer = "$mainUrl/").text
-            Regex("""file\s*:\s*"([^"]+\.m3u8[^"]*)""").find(body)
-                ?.groupValues?.getOrNull(1)
-                ?.let { m3u ->
+        // 2) AMP sayfasında direkt player olabilir
+        page.select("""link[rel=amphtml][href]""").firstOrNull()?.attr("href")?.let { ampHref ->
+            val amp = app.get(fixUrl(ampHref), referer = data, interceptor = interceptor).document
+            // amp-iframe veya normal iframe
+            (amp.select("amp-iframe[src]") + amp.select("iframe[src]")).forEach { ifr ->
+                val src = normalizeHref(ifr.attr("src")) ?: return@forEach
+                if (loadExtractor(src, "$mainUrl/", subtitleCallback, callback)) return true
+                val t = app.get(src, referer = "$mainUrl/").text
+                Regex("""https?://[^\s"']+\.m3u8[^\s"']*""").findAll(t).map { it.value }.forEach { m3u ->
                     M3u8Helper.generateM3u8(
                         source    = name,
                         name      = name,
@@ -247,12 +323,16 @@ class DiziPal : MainAPI() {
                     ).forEach(callback)
                     return true
                 }
+            }
         }
 
-        // 2) Sayfa HTML içinde doğrudan m3u8
-        Regex("""file\s*:\s*"([^"]+\.m3u8[^"]*)""").find(page.html())
-            ?.groupValues?.getOrNull(1)
-            ?.let { m3u ->
+        // 3) Sayfadaki iframeleri tara (gecikmeli yüklenebiliyor)
+        page.select("""iframe[src]""").forEach { iframe ->
+            val src = normalizeHref(iframe.attr("src")) ?: return@forEach
+            Log.d("DZP", "iframe » $src")
+            if (loadExtractor(src, "$mainUrl/", subtitleCallback, callback)) return@forEach
+            val body = app.get(src, referer = "$mainUrl/").text
+            Regex("""https?://[^\s"']+\.m3u8[^\s"']*""").findAll(body).map { it.value }.forEach { m3u ->
                 M3u8Helper.generateM3u8(
                     source    = name,
                     name      = name,
@@ -261,14 +341,64 @@ class DiziPal : MainAPI() {
                 ).forEach(callback)
                 return true
             }
+        }
+
+        // 4) Sayfanın kendi HTML’inde m3u8 var mı?
+        Regex("""https?://[^\s"']+\.m3u8[^\s"']*""").findAll(page.html()).map { it.value }.forEach { m3u ->
+            M3u8Helper.generateM3u8(
+                source    = name,
+                name      = name,
+                streamUrl = fixUrl(m3u),
+                referer   = "$mainUrl/"
+            ).forEach(callback)
+            return true
+        }
 
         return false
     }
 
-    // ---------- Utilities ----------
+    /** Sayfadaki data-rm-k JSON’unu ve appCKey’i kullanarak AES/CBC/PKCS5 çöz. */
+    private fun decryptFromPage(doc: org.jsoup.nodes.Document): String? {
+        val encDiv = doc.select("""div[data-rm-k]""").firstOrNull() ?: return null
+        // Jsoup text() &quot; → " çevirir, doğrudan JSON’a parse edebiliriz
+        val json = encDiv.text().trim().ifBlank { return null }
+        val payload = jacksonObjectMapper().readValue<EncPayload>(json)
+
+        // window.appCKey = 'BASE64';
+        val appKeyB64 = doc.select("script").asSequence()
+            .mapNotNull { Regex("""window\.appCKey\s*=\s*'([^']+)'""").find(it.data())?.groupValues?.getOrNull(1) }
+            .firstOrNull() ?: return null
+
+        val keyStr = String(Base64.getDecoder().decode(appKeyB64), Charset.forName("UTF-8")).trim()
+        val keyBytes = if (keyStr.matches(Regex("^[0-9a-fA-F]{32,64}\$")))
+            keyStr.hexToBytes()
+        else
+            keyStr.toByteArray(Charsets.UTF_8) // son çare
+
+        val ivBytes   = payload.iv.hexToBytes()
+        val cipherBin = Base64.getDecoder().decode(payload.ciphertext)
+
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, "AES"), IvParameterSpec(ivBytes))
+        val plain = cipher.doFinal(cipherBin)
+        return String(plain, Charsets.UTF_8)
+    }
+
+    /* -------------------- Utils -------------------- */
 
     private fun String.encodeURL() = java.net.URLEncoder.encode(this, "utf-8")
 
     private fun String.addPage(page: Int): String =
         if (page <= 1) this else if (this.contains("?")) "$this&page=$page" else "$this?page=$page"
+
+    private fun String.hexToBytes(): ByteArray {
+        val clean = this.replace(Regex("[^0-9a-fA-F]"), "")
+        val out = ByteArray(clean.length / 2)
+        var i = 0
+        while (i < clean.length) {
+            out[i / 2] = ((clean[i].digitToInt(16) shl 4) + clean[i + 1].digitToInt(16)).toByte()
+            i += 2
+        }
+        return out
+    }
 }
