@@ -3,23 +3,23 @@ pluginManagement {
         gradlePluginPortal()
         google()
         mavenCentral()
-        maven(url = "https://jitpack.io")
-        // Cloudstream plugin repositories
-        maven(url = "https://raw.githubusercontent.com/recloudstream/cloudstream/master/repo")
-        maven(url = "https://repo.recloudstream.org") // yedek
+        maven("https://jitpack.io")
+        // Cloudstream plugin repo'ları
+        maven("https://raw.githubusercontent.com/recloudstream/cloudstream/master/repo")
+        maven("https://repo.recloudstream.org")
     }
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    // build.gradle dosyalarında repository tanımlanmasın:
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS) // veya FAIL_ON_PROJECT_REPOS
     repositories {
         google()
         mavenCentral()
-        maven(url = "https://jitpack.io")
-        maven(url = "https://raw.githubusercontent.com/recloudstream/cloudstream/master/repo")
-        maven(url = "https://repo.recloudstream.org")
+        maven("https://jitpack.io")
+        maven("https://raw.githubusercontent.com/recloudstream/cloudstream/master/repo")
+        maven("https://repo.recloudstream.org")
     }
 }
 
-rootProject.name = "cloudstream-dizipal"
-include(":DiziPal")
+rootProject.name = "CloudStreamTR"
