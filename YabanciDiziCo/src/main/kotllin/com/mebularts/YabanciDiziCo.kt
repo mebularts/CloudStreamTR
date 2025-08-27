@@ -3,10 +3,22 @@
 package com.mebularts
 
 import android.util.Log
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.LoadResponse.Companion.addPoster
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.newHomePageResponse
+import com.lagradost.cloudstream3.newMovieLoadResponse
+import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newTvSeriesLoadResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.newEpisode
+import com.lagradost.cloudstream3.utils.M3u8Helper
+import com.lagradost.cloudstream3.utils.AppUtils.Companion.fixUrl
+import com.lagradost.cloudstream3.utils.AppUtils.Companion.fixUrlNull
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.network.CloudflareKiller
-import com.lagradost.cloudstream3.utils.*
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -14,77 +26,61 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class YabanciDiziCo : MainAPI() {
-    override var name                 = "YabanciDiziCo"
-    override var mainUrl              = "https://yabancidizi.so"
-    private val altMainUrl            = "https://yabancidizi.so"
-    override val hasMainPage          = true
-    override var lang                 = "tr"
-    override val hasQuickSearch       = true
-    override val supportedTypes       = setOf(TvType.TvSeries, TvType.Movie)
-
-    // Bazı sayfalar .so'ya yönleniyor, hepsini destekleyelim
-    private fun normalizeHost(url: String?): String? {
-        if (url.isNullOrBlank()) return null
-        return if (url.startsWith("http")) url
-        else fixUrl(url)
-    }
+    override var name           = "YabanciDiziCo"
+    override var mainUrl        = "https://yabancidizi.so"
+    private val backupMainUrl   = "https://yabancidizi.co" // bazı rotalarda .co çalışıyor
+    override val hasMainPage    = true
+    override var lang           = "tr"
+    override val hasQuickSearch = true
+    override val supportedTypes = setOf(TvType.TvSeries, TvType.Movie)
 
     // Cloudflare
     override var sequentialMainPage = true
-    private val cloudflareKiller by lazy { CloudflareKiller() }
-    private val cfInterceptor   by lazy { CloudflareInterceptor(cloudflareKiller) }
+    private val cfKiller by lazy { CloudflareKiller() }
+    private val cfInterceptor by lazy { CloudflareInterceptor(cfKiller) }
 
-    class CloudflareInterceptor(private val cloudflareKiller: CloudflareKiller) : Interceptor {
+    private class CloudflareInterceptor(private val killer: CloudflareKiller) : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
-            val req = chain.request()
-            val res = chain.proceed(req)
-            val peek = res.peekBody(512 * 1024).string()
-            val doc  = runCatching { Jsoup.parse(peek) }.getOrNull()
-            val title = doc?.selectFirst("title")?.text()?.trim().orEmpty()
+            val res = chain.proceed(chain.request())
+            val body = res.peekBody(512 * 1024).string()
+            val title = runCatching { Jsoup.parse(body).title() }.getOrNull().orEmpty()
             return if (title.equals("Just a moment...", true) || title.contains("Bir dakika", true)) {
-                cloudflareKiller.intercept(chain)
+                killer.intercept(chain)
             } else res
         }
     }
 
-    /* ---------- MainPage ---------- */
+    /* =====================  MAIN PAGE  ===================== */
 
     override val mainPage = mainPageOf(
-        // Sayfa 1: Anasayfa trend / yeni içerikler
-        "$mainUrl/" to "Öne Çıkanlar",
-        // Listenin çok olduğu klasik diziler listesi (sayfalı)
-        "$mainUrl/diziler" to "Diziler",
-        // Filmler menüsü (varsa)
-        "$mainUrl/filmler" to "Filmler"
+        "$mainUrl/"         to "Öne Çıkanlar",
+        "$mainUrl/diziler"  to "Diziler",
+        "$mainUrl/filmler"  to "Filmler"
     )
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        // Basit sayfalama: /diziler?page=2 gibi varyantları dener
-        val url = buildPagedUrl(request.data, page)
+    override suspend fun getMainPage(page: Int, request: MainPageRequest) : HomePageResponse {
+        val url = request.data.let { base ->
+            if (page <= 1) base else if ('?' in base) "$base&page=$page" else "$base?page=$page"
+        }
+
         val doc = getDoc(url)
 
-        val items = when {
+        val cards: List<SearchResponse> = when {
             request.data.endsWith("/diziler") || request.data.endsWith("/filmler") -> {
-                // Kartlar genelde /dizi/veya /film/ deseninde
                 doc.select("""a[href*="/dizi/"], a[href*="/film/"]""")
                     .distinctBy { it.absUrl("href") }
                     .mapNotNull { it.toCard() }
             }
             else -> {
-                // Anasayfa – farklı bileşenlerden dizi/film kartlarını topla
+                // Anasayfa: karışık bileşenlerden topla
                 doc.select("""a[href*="/dizi/"], a[href*="/film/"]""")
                     .distinctBy { it.absUrl("href") }
                     .mapNotNull { it.toCard() }
             }
         }
 
-        val hasNext = doc.select("""a[rel="next"], li.active + li > a, .pagination a:matchesOwn(İleri|Sonraki)""").isNotEmpty()
-        return newHomePageResponse(request.name, items, hasNext)
-    }
-
-    private fun buildPagedUrl(base: String, page: Int): String {
-        if (page <= 1) return base
-        return if (base.contains("?")) "$base&page=$page" else "$base?page=$page"
+        val hasNext = doc.select("""a[rel=next], li.active + li > a, .pagination a:matchesOwn(İleri|Sonraki)""").isNotEmpty()
+        return newHomePageResponse(request.name, cards, hasNext)
     }
 
     private fun Element.cardTitle(): String {
@@ -110,22 +106,21 @@ class YabanciDiziCo : MainAPI() {
         }
     }
 
-    /* ---------- Search ---------- */
+    /* =====================  SEARCH  ===================== */
 
-    // Site araması alan adları arasında farklı olabilir; birkaç rota dener.
     override suspend fun search(query: String): List<SearchResponse> {
         val q = query.trim()
-        val candidates = listOf(
+        val tries = listOf(
             "$mainUrl/?s=${q.encodeURL()}",
             "$mainUrl/arama?kelime=${q.encodeURL()}",
-            "$altMainUrl/?s=${q.encodeURL()}",
-            "$altMainUrl/arama?kelime=${q.encodeURL()}"
+            "$backupMainUrl/?s=${q.encodeURL()}",
+            "$backupMainUrl/arama?kelime=${q.encodeURL()}"
         )
         val out = mutableListOf<SearchResponse>()
-        for (u in candidates) {
+        for (u in tries) {
             val doc = runCatching { getDoc(u) }.getOrNull() ?: continue
             doc.select("""a[href*="/dizi/"], a[href*="/film/"]""")
-                .forEach { it.toCard()?.let(out::add) }
+                .forEach { el -> el.toCard()?.let(out::add) }
             if (out.isNotEmpty()) break
         }
         return out
@@ -133,10 +128,11 @@ class YabanciDiziCo : MainAPI() {
 
     override suspend fun quickSearch(query: String) = search(query)
 
-    /* ---------- Load (detay) ---------- */
+    /* =====================  LOAD (DETAIL)  ===================== */
 
     override suspend fun load(url: String): LoadResponse? {
         val doc = getDoc(url)
+
         val poster = doc.selectFirst("""meta[property="og:image"]""")?.attr("content")
             ?: doc.selectFirst("""meta[name="twitter:image"]""")?.attr("content")
             ?: doc.selectFirst("img[itemprop=thumbnailUrl]")?.attr("src")
@@ -147,32 +143,27 @@ class YabanciDiziCo : MainAPI() {
 
         return when {
             url.contains("/film/") -> {
-                // Film sayfasında genellikle tek "izle" düğmesi: bölüm gibi davranırız
                 newMovieLoadResponse(title, url, TvType.Movie, url) {
                     this.posterUrl = fixUrlNull(poster)
-                    addPoster(this.posterUrl)
                 }
             }
 
             url.contains("/dizi/") -> {
-                // Dizi – bölüm linkleri: /sezon-X/bolum-Y
                 val episodes = doc.select("""a[href*="/sezon-"][href*="/bolum-"]""")
                     .distinctBy { it.absUrl("href") }
                     .mapNotNull { a ->
                         val href = a.absUrl("href")
                         val (s, e) = parseSeasonEpisode(href)
-                        val name = a.attr("title").ifBlank { a.text() }.ifBlank { "Bölüm $e" }
+                        val ename = a.attr("title").ifBlank { a.text() }.ifBlank { "Bölüm $e" }
                         newEpisode(href) {
-                            this.name = name
-                            this.season = s
-                            this.episode = e
+                            name = ename
+                            season = s
+                            episode = e
                         }
                     }
 
-                // Bazı sayfalarda ilk bölüme kısayol butonu olabiliyor, yine de yukarıdaki seçiciler yakalıyor.
                 newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                     this.posterUrl = fixUrlNull(poster)
-                    addPoster(this.posterUrl)
                 }
             }
 
@@ -181,59 +172,63 @@ class YabanciDiziCo : MainAPI() {
     }
 
     private fun parseSeasonEpisode(href: String): Pair<Int?, Int?> {
-        // …/sezon-2/bolum-10
-        val r = Regex("""/sezon-(\d+)/bolum-(\d+)""").find(href)
-        val s = r?.groupValues?.getOrNull(1)?.toIntOrNull()
-        val e = r?.groupValues?.getOrNull(2)?.toIntOrNull()
-        return Pair(s, e)
+        // ör: /dizi/<slug>/sezon-2/bolum-10
+        val m = Regex("""/sezon-(\d+)/bolum-(\d+)""").find(href)
+        val s = m?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val e = m?.groupValues?.getOrNull(2)?.toIntOrNull()
+        return s to e
     }
 
-    /* ---------- Links (player) ---------- */
+    /* =====================  LINKS (PLAYER)  ===================== */
 
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
+        callback: (com.lagradost.cloudstream3.utils.ExtractorLink) -> Unit
     ): Boolean {
-        // data: film/dizi bölüm sayfası
-        val doc = getDoc(data)
-
-        // 1) Sayfadaki IFRAME'ler (oynatıcı sekmeleri genelde böyle yüklüyor)
+        val page = getDoc(data)
         var found = false
-        doc.select("iframe[src], amp-iframe[src]").forEach { frame ->
-            val src = normalizeHost(frame.absUrl("src")) ?: return@forEach
-            if (handlePlayableUrl(src, data, subtitleCallback, callback)) found = true
+
+        // 1) Sayfadaki iframe'ler
+        (page.select("iframe[src]") + page.select("amp-iframe[src]")).forEach { fr ->
+            val src = fr.absUrl("src")
+            if (src.isNotBlank() && handlePlayableUrl(src, data, subtitleCallback, callback)) {
+                found = true
+            }
         }
         if (found) return true
 
-        // 2) AMP sürümü varsa oradan da bak
-        doc.selectFirst("""link[rel=amphtml][href]""")?.absUrl("href")?.let { ampUrl ->
-            val amp = runCatching { getDoc(ampUrl) }.getOrNull()
-            amp?.select("iframe[src], amp-iframe[src]")?.forEach { frame ->
-                val src = normalizeHost(frame.absUrl("src")) ?: return@forEach
-                if (handlePlayableUrl(src, data, subtitleCallback, callback)) return true
+        // 2) AMP sürümü (varsa)
+        page.selectFirst("""link[rel=amphtml][href]""")?.absUrl("href")?.let { ampUrl ->
+            runCatching { getDoc(ampUrl) }.getOrNull()?.let { amp ->
+                (amp.select("iframe[src]") + amp.select("amp-iframe[src]")).forEach { fr ->
+                    val src = fr.absUrl("src")
+                    if (src.isNotBlank() && handlePlayableUrl(src, data, subtitleCallback, callback)) {
+                        return true
+                    }
+                }
             }
         }
 
-        // 3) Sayfa metninde direkt m3u8 ya da barındırıcı köprüleri olabilir (İndir linkleri vb.)
-        val whole = doc.outerHtml()
+        // 3) Tüm içerikte çıplak bağlantıları tara (.m3u8 + barındırıcılar)
+        val whole = page.outerHtml()
         val urlRegex = Regex("""https?://[^\s"'<>]+""")
-        val urls = urlRegex.findAll(whole).map { it.value }.distinct().toList()
+        val links = urlRegex.findAll(whole).map { it.value }.distinct().toList()
 
-        for (u in urls) {
-            // .m3u8 varsa direkt yakala
+        for (u in links) {
             if (u.contains(".m3u8")) {
                 M3u8Helper.generateM3u8(
                     source = name,
                     name = name,
-                    streamUrl = u,
+                    streamUrl = fixUrl(u),
                     referer = data
                 ).forEach(callback)
                 found = true
-                // devam: başka kalite de gelebilir
             } else {
-                if (handlePlayableUrl(u, data, subtitleCallback, callback)) found = true
+                if (handlePlayableUrl(u, data, subtitleCallback, callback)) {
+                    found = true
+                }
             }
         }
 
@@ -244,23 +239,22 @@ class YabanciDiziCo : MainAPI() {
         url: String,
         referer: String,
         subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
+        callback: (com.lagradost.cloudstream3.utils.ExtractorLink) -> Unit
     ): Boolean {
-        // Cloudstream'in dahili extractorları: ok.ru / vidmoly / streamtape / dood / filemoon / voe / sibnet ...
-        // Bunları loadExtractor ile geçelim. Başarılıysa true döner.
+        // Dahili extractor’lar (ok.ru, filemoon, streamtape, dood, voe, sibnet, vidmoly, vb.)
         val ok = loadExtractor(url, referer, subtitleCallback, callback)
         if (ok) return true
 
-        // Bazı embed sayfalarının kendi içinde m3u8 saklı olabilir; bir de içini tara
+        // Embed sayfasının içinde .m3u8 olabilir – bir de sayfanın içini tara
         return runCatching {
             val body = app.get(url, referer = referer).text
-            val m3u = Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
+            val m3u8s = Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
                 .findAll(body)
                 .map { it.value }
                 .distinct()
                 .toList()
-            if (m3u.isEmpty()) return@runCatching false
-            m3u.forEach { hls ->
+            if (m3u8s.isEmpty()) return@runCatching false
+            m3u8s.forEach { hls ->
                 M3u8Helper.generateM3u8(
                     source = name,
                     name = name,
@@ -272,16 +266,16 @@ class YabanciDiziCo : MainAPI() {
         }.getOrDefault(false)
     }
 
-    /* ---------- Helpers ---------- */
+    /* =====================  HELPERS  ===================== */
 
     private fun String.encodeURL() = java.net.URLEncoder.encode(this, "utf-8")
 
     private suspend fun getDoc(url: String): Document {
-        // .co hata verirse .so dener
+        // Önce verilen URL, sonra alternatif alan adı denenir
         val primary = runCatching { app.get(url, interceptor = cfInterceptor).document }.getOrNull()
         if (primary != null) return primary
 
-        val alt = url.replace(mainUrl, altMainUrl)
-        return app.get(alt, interceptor = cfInterceptor).document
+        val swapped = if (url.startsWith(mainUrl)) url.replace(mainUrl, backupMainUrl) else url.replace(backupMainUrl, mainUrl)
+        return app.get(swapped, interceptor = cfInterceptor).document
     }
 }
