@@ -16,10 +16,15 @@ jobs:
 
     steps:
       - name: Clone source (no external actions)
-        run: |
-          git clone --depth 0 https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git src
-          cd src
-          git checkout -q "$GITHUB_SHA" || git checkout -q "${GITHUB_REF##refs/heads/}"
+  run: |
+    ORIGIN_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+    # derinliği 1 yap (veya tamamen kaldır)
+    git clone --filter=blob:none --no-tags --depth 1 "$ORIGIN_URL" src
+    cd src
+    # Hedef commit'i dene; olmazsa branch'i al
+    git fetch --no-tags --depth 1 origin "$GITHUB_SHA" || true
+    git checkout -q "$GITHUB_SHA" || git checkout -q "${GITHUB_REF##refs/heads/}"
+
 
       - name: Install JDK 17
         run: |
