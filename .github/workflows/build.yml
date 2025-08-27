@@ -50,13 +50,20 @@ jobs:
           distribution: temurin
           java-version: '11'
 
+      # (İsteğe bağlı) wrapper'ı sabitle
+      - name: Gradle wrapper'ı 7.5'e sabitle
+        run: |
+          cd $GITHUB_WORKSPACE/src
+          sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-bin.zip#' gradle/wrapper/gradle-wrapper.properties
+
       - name: Eklentileri Derle
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
-          ./gradlew make makePluginsJson
-          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
+          ./gradlew --no-daemon clean make makePluginsJson
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds || true
           cp build/plugins.json $GITHUB_WORKSPACE/builds
+
 
 
       - name: Derlemeleri Yükle
