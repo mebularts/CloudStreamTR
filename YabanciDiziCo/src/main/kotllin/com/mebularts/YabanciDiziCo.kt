@@ -4,8 +4,8 @@ package com.mebularts
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.utils.*
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -22,7 +22,7 @@ class YabanciDiziCo : MainAPI() {
     override val supportedTypes = setOf(TvType.TvSeries, TvType.Movie)
     override var sequentialMainPage = true
 
-    /** olası ayna alan adları */
+    /** olası ayna alan adları — site ara sıra değişirse buraya ekleyebilirsin */
     private val altDomains = listOf(
         "https://yabancidizi.so",
         "https://www.yabancidizi.so",
@@ -30,18 +30,17 @@ class YabanciDiziCo : MainAPI() {
         "https://www.yabancidizi.co",
     )
 
-    // --- Cloudflare için hafif interceptor (Cloudstream’le uyumlu) ---
     private val cfKiller by lazy { CloudflareKiller() }
     private val cfInterceptor by lazy { object : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val res = chain.proceed(chain.request())
-            val body = res.peekBody(512 * 1024).string()
+            val body = res.peekBody(640 * 1024).string()
             val title = runCatching { Jsoup.parse(body).title() }.getOrNull().orEmpty()
             return if (title.equals("Just a moment...", true) || title.contains("Bir dakika", true)) {
                 cfKiller.intercept(chain)
             } else res
         }
-    }}
+    } }
 
     /* ===================== MAIN PAGE ===================== */
 
@@ -103,8 +102,9 @@ class YabanciDiziCo : MainAPI() {
     /* ===================== SEARCH ===================== */
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // çoğu WP sitede ?s= çalışır; sitede kapalıysa HTML fallback yine işe yarar
-        val tries = altDomains.map { "$it/?s=${query.encodeURL()}" }
+        // WordPress sitelerinde genellikle ?s= çalışır
+        val tries = altDomains.map { "$it/?s=${query.encodeURL()}" } +
+                    altDomains.map { "$it/ara?s=${query.encodeURL()}" }
         val out = mutableListOf<SearchResponse>()
         for (u in tries) {
             val doc = runCatching { getDoc(u) }.getOrNull() ?: continue
@@ -126,7 +126,7 @@ class YabanciDiziCo : MainAPI() {
         val poster = doc
             .selectFirst("""meta[property="og:image"]""")?.attr("content")
             ?: doc.selectFirst("""meta[name="twitter:image"]""")?.attr("content")
-            ?: doc.selectFirst("img[itemprop=thumbnailUrl]")?.attr("src")
+            ?: doc.selectFirst("""img[itemprop="thumbnailUrl"], .poster img, .thumb img""")?.attr("src")
 
         val title = doc.selectFirst("h1, .title h1, h1[itemprop=name]")?.text()?.trim()
             ?: doc.selectFirst("""meta[property="og:title"]""")?.attr("content")?.trim()
@@ -152,6 +152,7 @@ class YabanciDiziCo : MainAPI() {
                             episode = e
                         }
                     }
+                    .sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 }))
 
                 newTvSeriesLoadResponse(title, url, TvType.TvSeries, eps) {
                     this.posterUrl = fixUrlNull(poster)
@@ -179,7 +180,7 @@ class YabanciDiziCo : MainAPI() {
         val page = getDoc(data)
         var found = false
 
-        // 1) görünen iframe'ler
+        // 1) görünen iframe/amp-iframe
         (page.select("iframe[src]") + page.select("amp-iframe[src]")).forEach { fr ->
             val src = fr.absUrl("src")
             if (src.isNotBlank() && handlePlayableUrl(src, data, subtitleCallback, callback)) {
@@ -201,10 +202,10 @@ class YabanciDiziCo : MainAPI() {
             }
         }
 
-        // 3) sayfanın kendi HTML’i
+        // 3) sayfanın HTML’i
         if (tryM3u8OnText(page.outerHtml(), data, callback)) return true
 
-        // 4) script içeriğinde JWPlayer/plyr kaynakları
+        // 4) script’ler (jwplayer/plyr konfigleri)
         val scripts = page.select("script").joinToString("\n") { it.data() }
         if (tryM3u8OnText(scripts, data, callback)) return true
 
@@ -217,11 +218,10 @@ class YabanciDiziCo : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // yerleşik extractor’lar (ok.ru, dood, filemoon, voe, streamtape, sibnet, vidmoly, vudeo, etc.)
-        val ok = loadExtractor(url, referer, subtitleCallback, callback)
-        if (ok) return true
+        // Yerleşik extractor’lar
+        if (loadExtractor(url, referer, subtitleCallback, callback)) return true
 
-        // embed sayfasının iç metninde .m3u8 olabilir
+        // Embed sayfasının gövdesinde .m3u8 olabilir
         return runCatching {
             val body = app.get(url, referer = referer).text
             tryM3u8OnText(body, referer, callback)
