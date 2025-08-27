@@ -42,7 +42,6 @@ class DiziPal : MainAPI() {
         }
     }
 
-    // Güncel ve hızlı bir ana sayfa menüsü
     override val mainPage = mainPageOf(
         "$mainUrl/yeni-eklenen-bolumler" to "Yeni Eklenen Bölümler",
         "$mainUrl/yabanci-diziler"       to "Yabancı Diziler",
@@ -73,7 +72,7 @@ class DiziPal : MainAPI() {
         return newHomePageResponse(request.name, items, hasNext = hasNext)
     }
 
-    // ---------- Helpers (kart dönüştürücüler) ----------
+    // ---------- Helpers ----------
 
     private fun Element.cardTitle(): String? {
         return attr("title").takeIf { it.isNotBlank() }
@@ -115,14 +114,14 @@ class DiziPal : MainAPI() {
     private fun extractSeriesSlugFromEpisodePath(path: String): String? {
         val p = path.removePrefix("/").removePrefix("bolum/")
         if (p.isBlank()) return null
-        val noCode = p.replace(Regex("-c\\d+$"), "")            // sondaki -c13 vb.
-        return noCode.replace(Regex("-\\d+x\\d+.*$"), "")       // sondaki 2x4 vb.
+        val noCode = p.replace(Regex("-c\\d+$"), "")
+        return noCode.replace(Regex("-\\d+x\\d+.*$"), "")
     }
 
     // ---------- Arama ----------
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // 1) JSON autocomplete endpoint (varsa)
+        // JSON autocomplete varsa dene
         runCatching {
             val res = app.post(
                 "$mainUrl/api/search-autocomplete",
@@ -138,7 +137,7 @@ class DiziPal : MainAPI() {
             return map.values.map { it.toPostSearchResult() }
         }
 
-        // 2) HTML arama (fallback)
+        // HTML arama (fallback)
         val doc = app.get("$mainUrl/arama-yap?keyword=${query.encodeURL()}",
             interceptor = interceptor, referer = "$mainUrl/").document
 
@@ -223,23 +222,18 @@ class DiziPal : MainAPI() {
             val src = fixUrlNull(iframe.attr("src")) ?: return@forEach
             Log.d("DZP", "iframe » $src")
 
-            if (loadExtractor(src, "$mainUrl/", subtitleCallback, callback)) return true
+            if (loadExtractor(src, "$mainUrl/", subtitleCallback, callback)) return@forEach
 
             val body = app.get(src, referer = "$mainUrl/").text
             Regex("""file\s*:\s*"([^"]+\.m3u8[^"]*)""").find(body)
                 ?.groupValues?.getOrNull(1)
                 ?.let { m3u ->
-                    callback.invoke(
-                        newExtractorLink(
-                            source = name,
-                            name   = name,
-                            url    = fixUrl(m3u)
-                        ) {
-                            referer = "$mainUrl/"
-                            quality = Qualities.Unknown.value
-                            isM3u8  = true
-                        }
-                    )
+                    M3u8Helper.generateM3u8(
+                        source    = name,
+                        name      = name,
+                        streamUrl = fixUrl(m3u),
+                        referer   = "$mainUrl/"
+                    ).forEach(callback)
                     return true
                 }
         }
@@ -248,17 +242,12 @@ class DiziPal : MainAPI() {
         Regex("""file\s*:\s*"([^"]+\.m3u8[^"]*)""").find(page.html())
             ?.groupValues?.getOrNull(1)
             ?.let { m3u ->
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name   = name,
-                        url    = fixUrl(m3u)
-                    ) {
-                        referer = "$mainUrl/"
-                        quality = Qualities.Unknown.value
-                        isM3u8  = true
-                    }
-                )
+                M3u8Helper.generateM3u8(
+                    source    = name,
+                    name      = name,
+                    streamUrl = fixUrl(m3u),
+                    referer   = "$mainUrl/"
+                ).forEach(callback)
                 return true
             }
 
