@@ -42,7 +42,7 @@ class DiziPal : MainAPI() {
         }
     }
 
-    // Güncel site menüsü (hafif ve hızlı)
+    // Güncel ve hızlı bir ana sayfa menüsü
     override val mainPage = mainPageOf(
         "$mainUrl/yeni-eklenen-bolumler" to "Yeni Eklenen Bölümler",
         "$mainUrl/yabanci-diziler"       to "Yabancı Diziler",
@@ -56,13 +56,10 @@ class DiziPal : MainAPI() {
 
         val items = when {
             request.data.contains("/yeni-eklenen-bolumler") -> {
-                // /bolum/... linklerinden dizi kartı üret
                 doc.select("a[href^=\"/bolum/\"]").mapNotNull { it.toEpisodeAsSeriesCard() }
             }
             request.data.contains("/yabanci-diziler") || request.data.contains("/anime") -> {
-                doc.select("a[href^=\"/series/\"]")
-                    .distinctBy { it.attr("href") }
-                    .mapNotNull { it.toSeriesCard() }
+                doc.select("a[href^=\"/series/\"]").distinctBy { it.attr("href") }.mapNotNull { it.toSeriesCard() }
             }
             request.data.contains("/film") -> {
                 (doc.select("a[href^=\"/movies/\"]") + doc.select("a[href^=\"/film/\"] a[href^=\"/movies/\"]"))
@@ -125,7 +122,7 @@ class DiziPal : MainAPI() {
     // ---------- Arama ----------
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // 1) (Varsa) JSON autocomplete endpoint
+        // 1) JSON autocomplete endpoint (varsa)
         runCatching {
             val res = app.post(
                 "$mainUrl/api/search-autocomplete",
@@ -141,7 +138,7 @@ class DiziPal : MainAPI() {
             return map.values.map { it.toPostSearchResult() }
         }
 
-        // 2) HTML araması (fallback)
+        // 2) HTML arama (fallback)
         val doc = app.get("$mainUrl/arama-yap?keyword=${query.encodeURL()}",
             interceptor = interceptor, referer = "$mainUrl/").document
 
@@ -234,13 +231,14 @@ class DiziPal : MainAPI() {
                 ?.let { m3u ->
                     callback.invoke(
                         newExtractorLink(
-                            source  = name,
-                            name    = name,
-                            url     = fixUrl(m3u),
-                            referer = "$mainUrl/",
-                            quality = Qualities.Unknown.value,
+                            source = name,
+                            name   = name,
+                            url    = fixUrl(m3u)
+                        ) {
+                            referer = "$mainUrl/"
+                            quality = Qualities.Unknown.value
                             isM3u8  = true
-                        )
+                        }
                     )
                     return true
                 }
@@ -252,13 +250,14 @@ class DiziPal : MainAPI() {
             ?.let { m3u ->
                 callback.invoke(
                     newExtractorLink(
-                        source  = name,
-                        name    = name,
-                        url     = fixUrl(m3u),
-                        referer = "$mainUrl/",
-                        quality = Qualities.Unknown.value,
+                        source = name,
+                        name   = name,
+                        url    = fixUrl(m3u)
+                    ) {
+                        referer = "$mainUrl/"
+                        quality = Qualities.Unknown.value
                         isM3u8  = true
-                    )
+                    }
                 )
                 return true
             }
