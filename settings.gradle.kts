@@ -22,4 +22,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "CloudStreamTR"
-include(":DiziPal")
+include(":Dizipal")
