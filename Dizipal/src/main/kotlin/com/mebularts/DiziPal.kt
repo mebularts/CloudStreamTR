@@ -311,10 +311,10 @@ class DiziPal : MainAPI() {
         return any
     }
 
-    /** Metin içindeki .mp4 linklerini ekle (yeni API ile). */
+    /** Metin içindeki .mp4 linklerini ekle (yalın). */
     private suspend fun pushMp4s(
         text: String,
-        referer: String,
+        referer: String, // şu an header set etmiyoruz; API alanları val olduğu için
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         var any = false
@@ -325,11 +325,7 @@ class DiziPal : MainAPI() {
                         source = name,
                         name   = name,
                         url    = fixUrl(link)
-                    ) {
-                        this.referer = referer
-                        this.quality = Qualities.Unknown.value
-                        this.isM3u8  = false
-                    }
+                    )
                 )
                 any = true
             }
