@@ -1,100 +1,62 @@
-name: Build & Publish (Release assets)
+# Bu araç @mebularts tarafından ♥ ile kodlanmıştır.
+name: CloudStream Derleyici
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
-  push:
-    branches: [ master, main ]
   workflow_dispatch:
-
-permissions:
-  contents: write
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.yml"
+      - "**/*.jpg"
+      - "**/*.png"
+      - "**/*.py"
 
 jobs:
-  build:
+  CloudStreamDerleyici:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
-
     steps:
-      - name: Clone source (no external actions)
-  run: |
-    ORIGIN_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-    # derinliği 1 yap (veya tamamen kaldır)
-    git clone --filter=blob:none --no-tags --depth 1 "$ORIGIN_URL" src
-    cd src
-    # Hedef commit'i dene; olmazsa branch'i al
-    git fetch --no-tags --depth 1 origin "$GITHUB_SHA" || true
-    git checkout -q "$GITHUB_SHA" || git checkout -q "${GITHUB_REF##refs/heads/}"
+      - name: "'src' Depo Kontrolü"
+        uses: actions/checkout@master
+        with:
+          path: "src"
 
+      - name: "'build' Depo Kontrolü"
+        uses: actions/checkout@master
+        with:
+          ref: "builds"
+          path: "builds"
 
-      - name: Install JDK 17
+      - name: Eski Derlemeleri Temizle
+        run: rm $GITHUB_WORKSPACE/builds/*.cs3 || true
+
+      - name: JDK 11 Ayarla
+        uses: actions/setup-java@v4
+        with:
+          distribution: adopt
+          java-version: 11
+
+      - name: Android SDK Ayarla
+        uses: android-actions/setup-android@v2
+
+      - name: Eklentileri Derle
         run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk jq curl unzip
-          java -version
-
-      - name: Install Android SDK (cmdline-tools)
-        run: |
-          set -e
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-          cd "$GITHUB_WORKSPACE"
-          curl -L -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q cmdtools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-
-      - name: Build plugins and plugins.json
-        run: |
-          set -e
-          cd src
-          if [ ! -f gradlew ]; then
-            echo "Gradle wrapper yok. Yerelde 'gradle wrapper' üretip commit'lemeniz gerekiyor." >&2
-            exit 1
-          fi
+          cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
-          ./gradlew --no-daemon clean make makePluginsJson
-          mkdir -p "$GITHUB_WORKSPACE/artifacts"
-          find . -type f -path "*/build/*.cs3" -exec cp -f {} "$GITHUB_WORKSPACE/artifacts/" \;
-          if [ -f build/plugins.json ]; then cp -f build/plugins.json "$GITHUB_WORKSPACE/artifacts/plugins.json"; fi
-          if [ -f app/build/plugins.json ]; then cp -f app/build/plugins.json "$GITHUB_WORKSPACE/artifacts/plugins.json"; fi
+          ./gradlew make makePluginsJson
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
+          cp build/plugins.json $GITHUB_WORKSPACE/builds
 
-      - name: Create or get 'builds' release
-        id: getrel
+      - name: Derlemeleri Yükle
         run: |
-          set -e
-          OWNER_REPO="${GITHUB_REPOSITORY}"
-          AUTH="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
-          API="https://api.github.com/repos/${OWNER_REPO}"
-          HTTP=$(curl -s -o rel.json -w "%{http_code}" -H "$AUTH" "$API/releases/tags/builds" || true)
-          if [ "$HTTP" = "200" ]; then
-            echo "rel_id=$(jq -r .id rel.json)" >> $GITHUB_OUTPUT
-          else
-            curl -s -H "$AUTH" "$API/releases" \
-              -d '{"tag_name":"builds","name":"Builds","prerelease":false,"make_latest":"true"}' > rel.json
-            echo "rel_id=$(jq -r .id rel.json)" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Delete existing assets
-        run: |
-          set -e
-          OWNER_REPO="${GITHUB_REPOSITORY}"
-          AUTH="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
-          REL_ID="${{ steps.getrel.outputs.rel_id }}"
-          curl -s -H "$AUTH" "https://api.github.com/repos/${OWNER_REPO}/releases/${REL_ID}/assets" > assets.json
-          for id in $(jq -r '.[].id' assets.json); do
-            curl -s -X DELETE -H "$AUTH" "https://api.github.com/repos/${OWNER_REPO}/releases/assets/${id}" >/dev/null
-          done
-
-      - name: Upload plugins.json and cs3 files to release
-        run: |
-          set -e
-          OWNER_REPO="${GITHUB_REPOSITORY}"
-          AUTH="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
-          REL_ID="${{ steps.getrel.outputs.rel_id }}"
-          UPLOAD="https://uploads.github.com/repos/${OWNER_REPO}/releases/${REL_ID}/assets?name="
-          for f in $GITHUB_WORKSPACE/artifacts/*; do
-            NAME=$(basename "$f")
-            curl -s -H "$AUTH" -H "Content-Type: application/octet-stream" \
-              --data-binary @"$f" "${UPLOAD}${NAME}" > /dev/null
-          done
+          cd $GITHUB_WORKSPACE/builds
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add .
+          git commit --amend -m "$GITHUB_SHA 'nın Derlenmesi" || exit 0   # eğer commit edilecek bir şey yoksa hata verme
+          git push --force
