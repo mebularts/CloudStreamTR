@@ -36,12 +36,12 @@ subprojects {
     apply(plugin = "kotlin-android")
     apply(plugin = "com.lagradost.cloudstream3.gradle")
 
-    cloudstream {
-        // when running through github workflow, GITHUB_REPOSITORY should contain current repository name
-        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/mebularts/CloudstreamTR")
+cloudstream {
+    // ENV yok: doğrudan repo'nu yaz
+    setRepo("mebularts/CloudStreamTR") // veya "https://github.com/mebularts/CloudStreamTR"
+    authors = listOf("mebularts")
+}
 
-        authors = listOf("mebularts")
-    }
 
     android {
         namespace = "com.example"
