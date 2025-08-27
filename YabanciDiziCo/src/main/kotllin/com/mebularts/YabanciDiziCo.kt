@@ -4,8 +4,8 @@ package com.mebularts
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -13,15 +13,16 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class YabanciDiziCo : MainAPI() {
-    override var name           = "YabanciDiziCo"
-    override var mainUrl        = "https://yabancidizi.so"
-    override val hasMainPage    = true
-    override var lang           = "tr"
+    override var name = "YabanciDiziCo"
+    override var mainUrl = "https://yabancidizi.so"
+    override val hasMainPage = true
+    override var lang = "tr"
     override val hasQuickSearch = true
+    override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.TvSeries, TvType.Movie)
     override var sequentialMainPage = true
 
-    /** Bazı rotalarda ayna alan adları gerekebilir. Gerekirse buraya ekleyebilirsin. */
+    /** olası ayna alan adları */
     private val altDomains = listOf(
         "https://yabancidizi.so",
         "https://www.yabancidizi.so",
@@ -29,19 +30,18 @@ class YabanciDiziCo : MainAPI() {
         "https://www.yabancidizi.co",
     )
 
-    // --- Cloudflare yumuşak dokunuş ---
+    // --- Cloudflare için hafif interceptor (Cloudstream’le uyumlu) ---
     private val cfKiller by lazy { CloudflareKiller() }
-    private val cfInterceptor by lazy { CloudflareInterceptor(cfKiller) }
-    private class CloudflareInterceptor(private val killer: CloudflareKiller) : Interceptor {
+    private val cfInterceptor by lazy { object : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val res = chain.proceed(chain.request())
             val body = res.peekBody(512 * 1024).string()
             val title = runCatching { Jsoup.parse(body).title() }.getOrNull().orEmpty()
             return if (title.equals("Just a moment...", true) || title.contains("Bir dakika", true)) {
-                killer.intercept(chain)
+                cfKiller.intercept(chain)
             } else res
         }
-    }
+    }}
 
     /* ===================== MAIN PAGE ===================== */
 
@@ -67,7 +67,7 @@ class YabanciDiziCo : MainAPI() {
                     .mapNotNull { it.toCard() }
             }
             else -> {
-                // Ana sayfada karışık listeler olabilir — ikisini de topla
+                // ana sayfada karışık akış olabilir
                 (doc.select("""a[href*="/dizi/"]""") + doc.select("""a[href*="/film/"]"""))
                     .distinctBy { it.absUrl("href") }
                     .mapNotNull { it.toCard() }
@@ -103,7 +103,7 @@ class YabanciDiziCo : MainAPI() {
     /* ===================== SEARCH ===================== */
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // WordPress tarzı arama çoğunlukla ?s= ile çalışır
+        // çoğu WP sitede ?s= çalışır; sitede kapalıysa HTML fallback yine işe yarar
         val tries = altDomains.map { "$it/?s=${query.encodeURL()}" }
         val out = mutableListOf<SearchResponse>()
         for (u in tries) {
@@ -133,13 +133,11 @@ class YabanciDiziCo : MainAPI() {
             ?: doc.title().substringBefore("|").trim()
 
         return when {
-            // Film detay sayfası: /film/<slug>
             url.contains("/film/") -> {
                 newMovieLoadResponse(title, url, TvType.Movie, url) {
                     this.posterUrl = fixUrlNull(poster)
                 }
             }
-            // Dizi sayfası: /dizi/<slug> — bölüm linkleri içerir
             url.contains("/dizi/") -> {
                 // Bölümler: /dizi/<slug>/sezon-1/bolum-1
                 val eps = doc.select("""a[href*="/sezon-"][href*="/bolum-"]""")
@@ -164,7 +162,6 @@ class YabanciDiziCo : MainAPI() {
     }
 
     private fun parseSeasonEpisode(href: String): Pair<Int?, Int?> {
-        // ör: /dizi/1-happy-family-usa-izle-5/sezon-1/bolum-1
         val m = Regex("""/sezon-(\d+)/bolum-(\d+)""").find(href)
         val s = m?.groupValues?.getOrNull(1)?.toIntOrNull()
         val e = m?.groupValues?.getOrNull(2)?.toIntOrNull()
@@ -179,11 +176,10 @@ class YabanciDiziCo : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Hem film hem dizi bölüm sayfaları için çalışır
         val page = getDoc(data)
         var found = false
 
-        // 1) Sayfadaki iframe'ler
+        // 1) görünen iframe'ler
         (page.select("iframe[src]") + page.select("amp-iframe[src]")).forEach { fr ->
             val src = fr.absUrl("src")
             if (src.isNotBlank() && handlePlayableUrl(src, data, subtitleCallback, callback)) {
@@ -192,7 +188,7 @@ class YabanciDiziCo : MainAPI() {
         }
         if (found) return true
 
-        // 2) AMP sayfası varsa
+        // 2) AMP sayfası
         page.selectFirst("""link[rel=amphtml][href]""")?.absUrl("href")?.let { ampUrl ->
             runCatching { getDoc(ampUrl) }.getOrNull()?.let { amp ->
                 (amp.select("iframe[src]") + amp.select("amp-iframe[src]")).forEach { fr ->
@@ -201,21 +197,18 @@ class YabanciDiziCo : MainAPI() {
                         return true
                     }
                 }
-                // AMP içinde direkt m3u8 olabilir
                 if (tryM3u8OnText(amp.outerHtml(), data, callback)) return true
             }
         }
 
-        // 3) Sayfanın kendi HTML’inde m3u8 veya gömülü bağlantılar
-        if (tryM3u8OnText(page.outerHtml(), data, callback)) found = true
+        // 3) sayfanın kendi HTML’i
+        if (tryM3u8OnText(page.outerHtml(), data, callback)) return true
 
-        // 4) Script içinde JWPlayer/plyr kaynak taraması (file: "...m3u8")
-        if (!found) {
-            val scripts = page.select("script").joinToString("\n") { it.data() }
-            if (tryM3u8OnText(scripts, data, callback)) found = true
-        }
+        // 4) script içeriğinde JWPlayer/plyr kaynakları
+        val scripts = page.select("script").joinToString("\n") { it.data() }
+        if (tryM3u8OnText(scripts, data, callback)) return true
 
-        return found
+        return false
     }
 
     private suspend fun handlePlayableUrl(
@@ -224,11 +217,11 @@ class YabanciDiziCo : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Yerleşik extractor’lar (ok.ru, streamtape, dood, voe, filemoon, sibnet, vidmoly vs.)
+        // yerleşik extractor’lar (ok.ru, dood, filemoon, voe, streamtape, sibnet, vidmoly, vudeo, etc.)
         val ok = loadExtractor(url, referer, subtitleCallback, callback)
         if (ok) return true
 
-        // Embed sayfasının içini tara; m3u8 de olabilir
+        // embed sayfasının iç metninde .m3u8 olabilir
         return runCatching {
             val body = app.get(url, referer = referer).text
             tryM3u8OnText(body, referer, callback)
@@ -237,7 +230,6 @@ class YabanciDiziCo : MainAPI() {
 
     private fun tryM3u8OnText(text: String, referer: String, callback: (ExtractorLink) -> Unit): Boolean {
         var any = false
-        // .m3u8 adresleri
         Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
             .findAll(text)
             .map { it.value }
@@ -251,10 +243,6 @@ class YabanciDiziCo : MainAPI() {
                 ).forEach(callback)
                 any = true
             }
-
-        // Altyazı ipuçları (.vtt/.srt) — yalnızca callback tarafı istiyorsa ekleyebilirsin
-        // (Cloudstream otomatik yakalayabilir; burada zorunlu değil)
-
         return any
     }
 
@@ -266,21 +254,20 @@ class YabanciDiziCo : MainAPI() {
         if (page <= 1) this else if ('?' in this) "$this&page=$page" else "$this?page=$page"
 
     private suspend fun getDoc(u: String): Document {
-        // Önce verilen URL, sonra alternatif domain’ler
+        // doğrudan dene
         runCatching { return app.get(u, interceptor = cfInterceptor).document }
+        // ayna domain’lerle zorla
         for (base in altDomains) {
-            val candidate = trySwapDomain(u, base)
+            val candidate = swapHost(u, base)
             val resp = runCatching { app.get(candidate, interceptor = cfInterceptor).document }.getOrNull()
             if (resp != null) return resp
         }
-        // Son bir kez doğrudan dene (throw)
+        // son çare throw
         return app.get(u, interceptor = cfInterceptor).document
     }
 
-    private fun trySwapDomain(url: String, newBase: String): String {
-        for (base in altDomains) {
-            if (url.startsWith(base)) return url.replaceFirst(base, newBase)
-        }
+    private fun swapHost(url: String, newBase: String): String {
+        for (b in altDomains) if (url.startsWith(b)) return url.replaceFirst(b, newBase)
         return if (url.startsWith("/")) newBase + url else url
     }
 }
