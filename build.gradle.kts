@@ -1,16 +1,15 @@
 import com.lagradost.cloudstream3.gradle.CloudstreamExtension
 import com.android.build.gradle.BaseExtension
 
-buildscript {
-    // repositories BLOĞUNU SİL
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.7.3")
-        classpath("com.github.recloudstream:gradle:master-SNAPSHOT")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
-    }
+// 🔽 Classpath için buildscript{} KULLANMIYORUZ. Modern plugins DSL:
+plugins {
+    id("com.android.library") version "8.7.3" apply false
+    id("org.jetbrains.kotlin.android") version "2.1.0" apply false
+    id("com.lagradost.cloudstream3.gradle") version "master-SNAPSHOT" apply false
 }
 
-// allprojects { repositories { ... } } BLOĞUNU SİL
+// (ESKİ) buildscript { repositories { ... } dependencies { ... } }  — SİLİN
+// (ESKİ) allprojects { repositories { ... } }                      — SİLİN
 
 fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) =
     extensions.getByName<CloudstreamExtension>("cloudstream").configuration()
@@ -20,16 +19,16 @@ fun Project.android(configuration: BaseExtension.() -> Unit) =
 
 subprojects {
     apply(plugin = "com.android.library")
-    apply(plugin = "kotlin-android")
+    apply(plugin = "org.jetbrains.kotlin.android")
     apply(plugin = "com.lagradost.cloudstream3.gradle")
 
     cloudstream {
         setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/mebularts/CloudStreamTR")
-        authors = listOf("keyiflerolsun")
+        authors = listOf("mebularts")
     }
 
     android {
-        namespace = "com.keyiflerolsun"
+        namespace = "com.mebularts"
         defaultConfig {
             minSdk = 21
             compileSdkVersion(35)
@@ -42,7 +41,9 @@ subprojects {
         tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile> {
             compilerOptions {
                 jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
-                freeCompilerArgs.addAll(listOf("-Xno-call-assertions","-Xno-param-assertions","-Xno-receiver-assertions"))
+                freeCompilerArgs.addAll(
+                    listOf("-Xno-call-assertions","-Xno-param-assertions","-Xno-receiver-assertions")
+                )
             }
         }
     }
@@ -50,6 +51,7 @@ subprojects {
     dependencies {
         val cloudstream by configurations
         val implementation by configurations
+
         cloudstream("com.lagradost:cloudstream3:pre-release")
         implementation(kotlin("stdlib"))
         implementation("com.github.Blatzar:NiceHttp:0.4.11")
