@@ -1,0 +1,99 @@
+[
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=tr.canlitv.team&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/mebularts/CloudStreamTR",
+        "fileSize": 19568,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "mebularts"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 4,
+        "internalName": "CanliTV",
+        "description": "Canl\u0131 TV",
+        "url": "https://raw.githubusercontent.com/mebularts/CloudStreamTR/builds/CanliTV.cs3",
+        "name": "CanliTV"
+    },
+    {
+        "iconUrl": "https://www.cizgivedizi.com/favicon.ico",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/mebularts/CloudStreamTR",
+        "fileSize": 19386,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "mebularts"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": -1,
+        "internalName": "CizgiVeDizi",
+        "description": "cizgivedizi.com kaynak eklentisi \u2014 film ve dizi listeleri, b\u00f6l\u00fcm \u00e7\u0131karma, m3u8/embed yakalama.",
+        "url": "https://raw.githubusercontent.com/mebularts/CloudStreamTR/builds/CizgiVeDizi.cs3",
+        "name": "CizgiVeDizi"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=dizipal1103.com&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/mebularts/CloudStreamTR",
+        "fileSize": 29269,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "mebularts"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 13,
+        "internalName": "Dizipal",
+        "description": "Dizipal sa\u011flay\u0131c\u0131s\u0131",
+        "url": "https://raw.githubusercontent.com/mebularts/CloudStreamTR/builds/Dizipal.cs3",
+        "name": "Dizipal"
+    },
+    {
+        "iconUrl": "https://pbs.twimg.com/profile_images/1678085460583653382/Ol75hBtt_400x400.jpg",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/mebularts/CloudStreamTR",
+        "fileSize": 14129,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "mebularts"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 5,
+        "internalName": "Taraftarium24",
+        "description": "Taraftarium24 Canl\u0131 Ma\u00e7 \u0130zle",
+        "url": "https://raw.githubusercontent.com/mebularts/CloudStreamTR/builds/Taraftarium24.cs3",
+        "name": "Taraftarium24"
+    },
+    {
+        "iconUrl": "https://yabancidizi.so/favicon.ico",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/mebularts/CloudStreamTR",
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "mebularts"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": -1,
+        "internalName": "YabanciDiziCo",
+        "description": "yabancidizi.so kayna\u011f\u0131 \u2013 diziler/filmler, sezon/b\u00f6l\u00fcm ve m3u8/embed yakalama",
+        "url": "https://raw.githubusercontent.com/mebularts/CloudStreamTR/builds/YabanciDiziCo.cs3",
+        "name": "YabanciDiziCo"
+    }
+]
