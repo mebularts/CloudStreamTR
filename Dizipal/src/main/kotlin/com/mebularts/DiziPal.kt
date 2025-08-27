@@ -60,7 +60,6 @@ class DiziPal : MainAPI() {
 
         val cards = mutableListOf<SearchResponse>()
 
-        // Kartlar: torofilm temasında genellikle <article> altında link + img
         val items = doc.select("article a[href]")
             .filter { a ->
                 val h = a.attr("href")
@@ -125,7 +124,6 @@ class DiziPal : MainAPI() {
 
         return when {
             url.contains("/dizi/") -> {
-                // Bölüm linkleri: /bolum/<slug>-<s>-sezon-<e>-bolum-izle
                 val eps = doc.select("""a[href*="/bolum/"]""")
                     .mapNotNull { a ->
                         val href = normalizeHref(a.attr("href")) ?: return@mapNotNull null
@@ -144,13 +142,11 @@ class DiziPal : MainAPI() {
             }
 
             url.contains("/film/") -> {
-                // Movie: player sayfanın kendisinde. data = url
                 newMovieLoadResponse(title, url, TvType.Movie, url) {
                     this.posterUrl = poster
                 }
             }
 
-            // Bölüm sayfası direkt yüklendiyse
             url.contains("/bolum/") -> {
                 val (s, e) = parseSeasonEpisode(url, doc.selectFirst("h1")?.text().orEmpty())
                 val ep = newEpisode(url) {
@@ -168,11 +164,9 @@ class DiziPal : MainAPI() {
     }
 
     private fun parseSeasonEpisode(href: String, textRaw: String): Pair<Int?, Int?> {
-        // 1) href kalıbı: ...-<s>-sezon-<e>-bolum...
         Regex("""-(\d+)-sezon-(\d+)-bolum""", RegexOption.IGNORE_CASE).find(href)?.let {
             return it.groupValues[1].toIntOrNull() to it.groupValues[2].toIntOrNull()
         }
-        // 2) yazıdan: "1. Sezon 3. Bölüm", "1 Sezon 3 Bölüm" (tr -> en basitleştir)
         val text = textRaw.lowercase().replace('ö','o').replace('ü','u')
         val s = Regex("""(\d+)\s*\.?\s*sezon""").find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
         val e = Regex("""(\d+)\s*\.?\s*bolum""").find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -194,17 +188,14 @@ class DiziPal : MainAPI() {
         // 1) Önce sayfanın kendisinde ara
         if (extractFromPageUrl(data, referer = "$mainUrl/", subtitleCallback, callback)) return true
 
-        // 2) Sayfadaki iframeleri tara (ana player burada)
+        // 2) Sayfadaki iframeleri tara
         val page = app.get(data, interceptor = interceptor, referer = "$mainUrl/").document
         val iframes = page.select("iframe[src], amp-iframe[src]")
         for (ifr in iframes) {
             val src = normalizeHref(ifr.attr("src")) ?: continue
             Log.d("DZP", "iframe: $src")
 
-            // a) Cloudstream extractor’larını dene
             if (loadExtractor(src, data, subtitleCallback, callback)) return true
-
-            // b) Embed HTML içinde avlan
             if (extractFromPageUrl(src, referer = data, subtitleCallback, callback)) return true
         }
 
@@ -216,7 +207,7 @@ class DiziPal : MainAPI() {
         return false
     }
 
-    /** Verilen sayfayı indirip: şifre çöz, <script> ve gövde içinden .m3u8/.mp4 çıkar, gerekiyorsa iframe’leri de dener. */
+    /** Verilen sayfayı indirip: şifre çöz, <script> ve gövde içinden .m3u8/.mp4 çıkar. */
     private suspend fun extractFromPageUrl(
         url: String,
         referer: String,
@@ -227,28 +218,23 @@ class DiziPal : MainAPI() {
         val body = res.text
         val doc  = res.document
 
-        // Şifreli payload (varsa)
         decryptFromPage(doc)?.let { dec ->
             if (pushM3u8s(dec, referer, callback)) return true
             if (pushMp4s(dec, referer, callback)) return true
-            // İçeride başka URL’ler varsa extractor’lara ver
             Regex("""https?://[^\s"'<>]+""").findAll(dec).map { it.value }.distinct().forEach { u ->
                 if (loadExtractor(u, referer, subtitleCallback, callback)) return true
             }
         }
 
-        // Direkt gövde ve scriptleri tara
         if (pushM3u8s(body, referer, callback)) return true
         if (pushMp4s(body, referer, callback)) return true
         if (huntInScripts(doc, url, callback)) return true
 
-        // <video><source src="blob:..."></video> → blob çekilemez; ama JS içinde gerçek m3u8/MP4 varsa yukarıda yakalanır.
-
-        // Sayfadaki iframeler de taransın
+        // iframe içleri
         doc.select("iframe[src], amp-iframe[src]").forEach { ifr ->
             val src = normalizeHref(ifr.attr("src")) ?: return@forEach
             if (loadExtractor(src, referer, subtitleCallback, callback)) return@forEach
-            val subRes = app.get(src, referer = url, interceptor = interceptor)
+            val subRes  = app.get(src, referer = url, interceptor = interceptor)
             val subBody = subRes.text
             val subDoc  = subRes.document
             if (pushM3u8s(subBody, url, callback)) return@forEach
@@ -276,22 +262,21 @@ class DiziPal : MainAPI() {
 
             if (code.isNullOrBlank()) continue
 
-            // 1) Kod içinde direkt .m3u8
             if (pushM3u8s(code, referer, callback)) found = true
 
-            // 2) JWPlayer/HLS file:"...m3u8"
             Regex("""file\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""")
                 .findAll(code).map { it.groupValues[1] }.distinct().forEach { m3u ->
-                    M3u8Helper.generateM3u8(
-                        source   = name,
-                        streamUrl= fixUrl(m3u),
-                        referer  = referer,
-                        name     = name
-                    ).forEach(callback)
-                    found = true
+                    runCatching {
+                        M3u8Helper.generateM3u8(
+                            source    = name,
+                            streamUrl = fixUrl(m3u),
+                            referer   = referer,
+                            name      = name
+                        ).forEach(callback)
+                        found = true
+                    }
                 }
 
-            // 3) Base64 (atob("..."))
             Regex("""atob\(['"]([A-Za-z0-9+/=]{20,})['"]\)""")
                 .findAll(code).mapNotNull {
                     runCatching { String(Base64.getDecoder().decode(it.groupValues[1])) }.getOrNull()
@@ -300,7 +285,6 @@ class DiziPal : MainAPI() {
                     if (pushMp4s(decoded, referer, callback)) found = true
                 }
 
-            // 4) Kod içinde .mp4
             if (pushMp4s(code, referer, callback)) found = true
         }
 
@@ -327,8 +311,8 @@ class DiziPal : MainAPI() {
         return any
     }
 
-    /** Metin içindeki .mp4 linklerini ekle. */
-    private fun pushMp4s(
+    /** Metin içindeki .mp4 linklerini ekle (yeni API ile). */
+    private suspend fun pushMp4s(
         text: String,
         referer: String,
         callback: (ExtractorLink) -> Unit
@@ -338,13 +322,14 @@ class DiziPal : MainAPI() {
             .findAll(text).map { it.value }.distinct().forEach { link ->
                 callback(
                     newExtractorLink(
-                        source  = name,
-                        name    = name,
-                        url     = fixUrl(link),
-                        referer = referer,
-                        quality = Qualities.Unknown.value,
-                        isM3u8  = false
-                    )
+                        source = name,
+                        name   = name,
+                        url    = fixUrl(link)
+                    ) {
+                        this.referer = referer
+                        this.quality = Qualities.Unknown.value
+                        this.isM3u8  = false
+                    }
                 )
                 any = true
             }
@@ -357,7 +342,6 @@ class DiziPal : MainAPI() {
         val json = encDiv.text().trim().ifBlank { return null }
         val payload = jacksonObjectMapper().readValue<EncPayload>(json)
 
-        // window.appCKey = 'BASE64';
         val appKeyB64 = doc.select("script").asSequence()
             .mapNotNull { Regex("""window\.appCKey\s*=\s*'([^']+)'""").find(it.data())?.groupValues?.getOrNull(1) }
             .firstOrNull() ?: return null
@@ -383,7 +367,6 @@ class DiziPal : MainAPI() {
 
     private fun String.addPagePath(page: Int): String {
         if (page <= 1) return this
-        // Dizipal WordPress: /page/2/ yapısı yaygın; query’li yerlerde ?paged=
         return if (this.contains("?")) {
             if (this.contains("paged=")) this.replace(Regex("paged=\\d+"), "paged=$page")
             else if (this.endsWith("?") || this.endsWith("&")) this + "paged=$page"
