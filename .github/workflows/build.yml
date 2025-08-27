@@ -45,13 +45,8 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK ayarla
-        uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platforms;android-35
-            build-tools;35.0.0
-            platform-tools
+      - name: Android SDK Ayarla
+        uses: android-actions/setup-android@v2
 
       # (İsteğe bağlı) wrapper'ı 8.8'e sabitle – repo içinde zaten 8.8 ise bu adım gereksiz
       - name: Gradle wrapper'ı 8.8'e sabitle
