@@ -1,4 +1,5 @@
-// ! https://codeberg.org/cloudstream/cloudstream-extensions-multilingual/src/branch/master/FreeTVProvider/src/main/kotlin/com/lagradost/FreeTVProvider.kt
+// CanliTV.kt
+// CloudStream FreeIPTV_TR uyarlaması (deprecated ctor ve inline-lambda continue fixleri yapıldı)
 
 package com.mebularts
 
@@ -10,9 +11,9 @@ import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import java.io.InputStream
 
 class CanliTV : MainAPI() {
-    // FreeIPTV_TR için DOĞRU RAW yol
-    // Not: "refs/heads/main" raw için yanlıştır; branch adı direkt verilir.
-    override var mainUrl = "https://raw.githubusercontent.com/mebularts/FreeIPTV_TR/main/ByteFixRepairsTurkIPTV.m3u"
+    // FreeIPTV_TR için doğru RAW link
+    override var mainUrl =
+        "https://raw.githubusercontent.com/mebularts/FreeIPTV_TR/main/ByteFixRepairsTurkIPTV.m3u"
 
     override var name               = "CanliTV"
     override val hasMainPage        = true
@@ -23,7 +24,6 @@ class CanliTV : MainAPI() {
 
     // -------- Helpers --------
     private suspend fun fetchPlaylist(): Playlist {
-        // Bazı raw proxy'lerde referer isteyebiliyor; güvenli bir User-Agent ekleyelim.
         val txt = app.get(
             mainUrl,
             headers = mapOf("User-Agent" to "CloudStream/CanliTV (+github.com/mebularts)"),
@@ -97,7 +97,7 @@ class CanliTV : MainAPI() {
 
         // Aynı gruptan öneriler
         val kanallar = fetchPlaylist()
-        val recommendations = kanallar.items.asSequence()
+        val recommendations = kanallar.items
             .filter { (it.attributes["group-title"] ?: "Diğer") == loadData.group }
             .mapNotNull { item ->
                 val d = item.toLoadData()
@@ -127,23 +127,21 @@ class CanliTV : MainAPI() {
 
         val kanallar = fetchPlaylist()
         val kanal = kanallar.items.firstOrNull { it.url == loadData.url }
-            ?: run {
-                // URL değiştiyse başlığa göre fallback
-                kanallar.items.first { (it.title ?: "") == loadData.title }
-            }
+            ?: kanallar.items.first { (it.title ?: "") == loadData.title }
         Log.d("IPTV", "kanal » $kanal")
 
         val isM3u8 = loadData.url.contains(".m3u8", ignoreCase = true)
 
+        // DEPRECATED ctor yerine newExtractorLink kullan
         callback.invoke(
-            ExtractorLink(
-                source  = this.name,
-                name    = this.name,
-                url     = loadData.url,
-                headers = kanal.headers,                 // UA/Referer varsa geçir
+            newExtractorLink(
+                source = this.name,
+                name = this.name,
+                url = loadData.url,
                 referer = kanal.headers["referrer"] ?: "",
                 quality = Qualities.Unknown.value,
-                isM3u8  = isM3u8
+                isM3u8 = isM3u8,
+                headers = kanal.headers
             )
         )
         return true
@@ -200,9 +198,12 @@ class IptvPlaylistParser {
                     val attributes = line.getAttributes()
                     playlistItems.add(PlaylistItem(title, attributes))
                 } else if (line.startsWith(EXT_VLC_OPT, ignoreCase = true)) {
-                    val item      = playlistItems.getOrNull(currentIndex) ?: run {
-                        line = reader.readLine(); continue
+                    // inline-lambda içinde continue kullanmadan klasik kontrol
+                    if (currentIndex >= playlistItems.size) {
+                        line = reader.readLine()
+                        continue
                     }
+                    val item      = playlistItems[currentIndex]
                     val userAgent = item.userAgent ?: line.getTagValue("http-user-agent")
                     val referrer  = line.getTagValue("http-referrer")
 
@@ -216,9 +217,12 @@ class IptvPlaylistParser {
                     )
                 } else {
                     if (!line.startsWith("#")) {
-                        val item       = playlistItems.getOrNull(currentIndex) ?: run {
-                            line = reader.readLine(); continue
+                        // inline-lambda içinde continue yok
+                        if (currentIndex >= playlistItems.size) {
+                            line = reader.readLine()
+                            continue
                         }
+                        val item       = playlistItems[currentIndex]
                         val url        = line.getUrl()
                         val userAgent  = line.getUrlParameter("user-agent")
                         val referrer   = line.getUrlParameter("referer") ?: line.getUrlParameter("referrer")
