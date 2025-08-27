@@ -1,0 +1,8 @@
+{
+  "name": "Mebularts CloudStreamTR",
+  "description": "Cloudstream Türkiye eklentileri",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://github.com/mebularts/CloudStreamTR/builds/plugins.json"
+  ]
+}
