@@ -85,27 +85,19 @@ class DiziPal : MainAPI() {
             ?: parent()?.attr("title")?.takeIf { it.isNotBlank() }
     }
 
-    private fun Element.posterUrlNearby(): String? {
-        val img = (this.selectFirst("img") ?: parent()?.selectFirst("img"))
-        val src = img?.attr("data-src")?.ifBlank { img.attr("src") }
-        return fixUrlNull(src)
-    }
-
     private fun normalizeHref(href: String?): String? =
         if (href.isNullOrBlank()) null else if (href.startsWith("http")) href else fixUrl(href)
 
     private fun Element.toSeriesCard(): SearchResponse? {
         val href   = normalizeHref(attr("href")) ?: return null
         val title  = cardTitle() ?: href.substringAfterLast("/").ifBlank { "Dizi" }
-        val poster = posterUrlNearby()
-        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
+        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) { /* poster yok */ }
     }
 
     private fun Element.toMovieCard(): SearchResponse? {
         val href   = normalizeHref(attr("href")) ?: return null
         val title  = cardTitle() ?: href.substringAfterLast("/").ifBlank { "Film" }
-        val poster = posterUrlNearby()
-        return newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
+        return newMovieSearchResponse(title, href, TvType.Movie) { /* poster yok */ }
     }
 
     /** /yeni-eklenen-bolumler → bölüm linkini dizi kartına dönüştür. */
@@ -113,17 +105,14 @@ class DiziPal : MainAPI() {
         val raw = normalizeHref(attr("href")) ?: return null
         val seriesUrl = guessSeriesUrlFromEpisode(raw) ?: return null
         val title  = cardTitle() ?: seriesUrl.substringAfterLast("/").replace("-", " ")
-        val poster = posterUrlNearby()
-        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { posterUrl = poster }
+        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { /* poster yok */ }
     }
 
     /** https://dizipal1103.com/bolum/modern-kadin-1x1-c05 → https://dizipal1103.com/series/modern-kadin */
     private fun guessSeriesUrlFromEpisode(epUrl: String): String? {
         val path = epUrl.substringAfter("/bolum/", "")
         if (path.isBlank()) return null
-        val base = path
-            .replace(Regex("-\\d+x\\d+(-c\\d+)?$"), "")
-            .substringBefore("?")
+        val base = path.replace(Regex("-\\d+x\\d+(-c\\d+)?$"), "").substringBefore("?")
         return "$mainUrl/series/$base"
     }
 
@@ -169,11 +158,10 @@ class DiziPal : MainAPI() {
     private fun SearchItem.toPostSearchResult(): SearchResponse {
         val title = if (this.trTitle.isNullOrBlank()) this.title else this.trTitle
         val href  = normalizeHref("$mainUrl${this.url}")!!
-        val posterUrl = fixUrlNull(this.poster)
         return if (this.type == "series") {
-            newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = posterUrl }
+            newTvSeriesSearchResponse(title, href, TvType.TvSeries) { /* poster yok */ }
         } else {
-            newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = posterUrl }
+            newMovieSearchResponse(title, href, TvType.Movie) { /* poster yok */ }
         }
     }
 
@@ -182,12 +170,6 @@ class DiziPal : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url, interceptor = interceptor, referer = "$mainUrl/").document
 
-        val poster = fixUrlNull(
-            doc.selectFirst("[property='og:image']")?.attr("content")
-                ?: doc.selectFirst("meta[name='twitter:image']")?.attr("content")
-                ?: doc.selectFirst("""img[src*="/uploads/"]""")?.attr("src")
-        )
-
         val titleMeta = doc.selectFirst("h1, .g-title div, .title h1, meta[property='og:title']")
             ?.let { it.attr("content").ifBlank { it.text() } }?.trim()
 
@@ -195,7 +177,6 @@ class DiziPal : MainAPI() {
             url.contains("/series/") -> {
                 val title = titleMeta ?: doc.title().substringBefore("|").trim()
 
-                // Bölümler
                 val eps = doc.select("""a[href*="/bolum/"]""").mapNotNull { a ->
                     val href = normalizeHref(a.attr("href")) ?: return@mapNotNull null
                     val se = Regex("(\\d+)x(\\d+)").find(href)
@@ -210,16 +191,12 @@ class DiziPal : MainAPI() {
                     }
                 }
 
-                newTvSeriesLoadResponse(title, url, TvType.TvSeries, eps) {
-                    posterUrl = poster
-                }
+                newTvSeriesLoadResponse(title, url, TvType.TvSeries, eps) { /* poster yok */ }
             }
 
             url.contains("/movies/") || url.contains("/film/") -> {
                 val title = titleMeta ?: doc.title().substringBefore("|").trim()
-                newMovieLoadResponse(title, url, TvType.Movie, url) {
-                    posterUrl = poster
-                }
+                newMovieLoadResponse(title, url, TvType.Movie, url) { /* poster yok */ }
             }
 
             else -> null
@@ -242,7 +219,6 @@ class DiziPal : MainAPI() {
         // 1) Şifreli payload + appCKey → çöz
         val decrypted = runCatching { decryptFromPage(page) }.getOrNull()
         if (!decrypted.isNullOrBlank()) {
-            // Altyazılar (subtitle veya subtitles kalıbı)
             emitSubtitlesFromBlob(decrypted, subtitleCallback)
 
             // m3u8 doğrudan
@@ -349,7 +325,7 @@ class DiziPal : MainAPI() {
         return String(plain, Charsets.UTF_8)
     }
 
-    /** Şerit halinde gelen altyazıları yakala ve gönder. Örn: "https://x/sub[TR],https://y/sub[EN]" */
+    /** Şerit halinde gelen altyazıları yakala ve gönder. */
     private fun emitSubtitlesFromBlob(blob: String, subtitleCallback: (SubtitleFile) -> Unit) {
         val sub = Regex("""(?i)"?subtitles?"?\s*:\s*"([^"]+)"""").find(blob)?.groupValues?.getOrNull(1)
             ?: Regex("""(?i)"?subtitle"?\s*:\s*"([^"]+)"""").find(blob)?.groupValues?.getOrNull(1)
