@@ -4,8 +4,8 @@ package com.mebularts
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.M3u8Helper
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.net.URI
 
 class Taraftarium24 : MainAPI() {
     override var mainUrl              = "https://xn--taraftarium24canl-svc.com.tr"
@@ -114,10 +114,12 @@ class Taraftarium24 : MainAPI() {
 
         // <script> içerikleri
         doc.select("script").forEach { s ->
-            val code = if (s.hasAttr("src")) {
+            val code: String? = if (s.hasAttr("src")) {
                 val src = normalizeHref(s.attr("src"), base = url) ?: return@forEach
                 runCatching { app.get(src, referer = url).text }.getOrNull()
-            } else s.data()
+            } else {
+                s.data()
+            }
             if (!code.isNullOrBlank()) out += findM3u8InText(code)
         }
 
@@ -140,9 +142,13 @@ class Taraftarium24 : MainAPI() {
     private fun normalizeHref(href: String?, base: String? = null): String? {
         if (href.isNullOrBlank()) return null
         val raw = href.trim()
-        if (raw.startsWith("//")) return "https:$raw"
-        if (raw.startsWith("http")) return raw
-        return if (base != null) runCatching { Jsoup.resolve(base, raw) }.getOrNull() ?: fixUrl(raw) else fixUrl(raw)
+        return when {
+            raw.startsWith("//") -> "https:$raw"
+            raw.startsWith("http://") || raw.startsWith("https://") -> raw
+            !base.isNullOrBlank() -> runCatching { URI(base).resolve(raw).toString() }.getOrNull()
+                ?: fixUrl(raw)
+            else -> fixUrl(raw)
+        }
     }
 
     /** Ana sayfadaki kanal listesini (id, ad) olarak döndür. */
