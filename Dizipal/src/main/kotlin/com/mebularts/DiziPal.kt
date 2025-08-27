@@ -311,15 +311,13 @@ class DiziPal : MainAPI() {
                     // Doğrudan akışsa doğrudan ver; değilse extractor'a bırak
                     if (isHls || resolved.endsWith(".mp4", true)) {
                         callback.invoke(
-                            newExtractorLink(
-                                name,              // source
-                                "DiziPal",         // name
-                                resolved,          // url
-                                mainUrl,           // referer  (konumsal argüman!)
-                                Qualities.Unknown.value,
-                                isHls
-                            )
-                        )
+    newExtractorLink(name, "DiziPal", resolved) {
+        this.referer = mainUrl
+        this.quality = Qualities.Unknown.value
+        this.isM3u8  = isHls
+    }
+)
+
                         return true
                     } else {
                         // Örn: vidmoly/dood vb. gömülü sayfa
