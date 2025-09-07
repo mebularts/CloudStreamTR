@@ -2,147 +2,118 @@ package com.mebularts
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class CizgiVeDizi : MainAPI() {
-
-    override var mainUrl              = "https://www.cizgivedizi.com"
-    override var name                 = "Çizgi ve Dizi"
-    override val hasMainPage          = true
-    override var lang                 = "tr"
-    override val hasQuickSearch       = true      // Kendi içinde client-side filtreleme yapıyoruz
+    override var mainUrl = "https://www.cizgivedizi.com"
+    override var name = "Çizgi ve Dizi"
+    override val hasMainPage = true
+    override var lang = "tr"
+    override val hasQuickSearch = false // sitede arama uçları yok/403
     override val hasChromecastSupport = true
-    override val hasDownloadSupport   = true
-    override val supportedTypes       = setOf(TvType.Movie, TvType.TvSeries)
-
-    // Site, ayrı listeleme sayfaları yerine ana sayfada kartları gösteriyor.
-    // Bu nedenle "Filmler" ve "Diziler" bölümlerini tek sayfadan çıkarıyoruz.
-    override val mainPage = mainPageOf(
-        "$mainUrl/" to "Filmler",
-        "$mainUrl/" to "Diziler",
-    )
+    override val hasDownloadSupport = true
+    override val supportedTypes = setOf(TvType.TvSeries, TvType.Movie)
 
     /* -------------------- Main Page -------------------- */
-
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val doc = app.get(mainUrl, referer = mainUrl).document
+        val doc = app.get(mainUrl).document
 
-        val filmCards = parseCards(doc, wantSeries = false)
-        val diziCards = parseCards(doc, wantSeries = true)
+        // Anasayfadaki grid: <div id="main"> ... <a href="/film/..."> ve <a href="/dizi/...">
+        val movieCards = doc.select("""#main a[href^="/film/"]""")
+            .distinctBy { it.attr("href") }
+            .mapNotNull { it.toMovieCard() }
 
-        val rows = when (request.name) {
-            "Filmler" -> listOf(HomePageList("Filmler", filmCards))
-            "Diziler" -> listOf(HomePageList("Diziler", diziCards))
-            else      -> listOf(
-                HomePageList("Filmler", filmCards),
-                HomePageList("Diziler", diziCards),
-            )
+        val seriesCards = doc.select("""#main a[href^="/dizi/"]""")
+            .distinctBy { it.attr("href") }
+            .mapNotNull { it.toSeriesCard() }
+
+        val sections = listOf(
+            HomePageList("Filmler", movieCards),
+            HomePageList("Diziler", seriesCards),
+        )
+        return newHomePageResponse(sections, hasNext = false)
+    }
+
+    /* -------------------- Cards -------------------- */
+    private fun Element.posterUrl(): String? {
+        val img = selectFirst(".poster-div img.poster")
+            ?: selectFirst("img.poster")
+            ?: selectFirst("img")
+        return fixUrlNull(img?.attr("src"))
+    }
+
+    private fun Element.cardTitle(): String {
+        val t = selectFirst(".card-overlay .card-title")?.text()
+            ?: attr("title")
+            ?: selectFirst("img[alt]")?.attr("alt")
+            ?: text()
+        return t.trim()
+    }
+
+    private fun Element.toMovieCard(): SearchResponse? {
+        val href = attr("href").takeIf { it.isNotBlank() } ?: return null
+        val url = if (href.startsWith("http")) href else fixUrl(href)
+        val title = cardTitle().ifBlank { url.substringAfterLast("/").replace("-", " ") }
+        val poster = posterUrl()
+        return newMovieSearchResponse(title, url, TvType.Movie) {
+            this.posterUrl = poster
         }
-        return newHomePageResponse(request.name, rows.flatten().firstOrNull()?.list ?: emptyList(), hasNext = false)
     }
 
-    private fun parseCards(doc: Document, wantSeries: Boolean): List<SearchResponse> {
-        // Kartlar <a> seviyesinde, href="/film/..." veya href="/dizi/..."
-        val sel = if (wantSeries) """a[href^="/dizi/"]""" else """a[href^="/film/"]"""
-        return doc.select(sel).mapNotNull { a ->
-            val href = a.attr("href").takeIf { it.startsWith("/") }?.let { fixUrl(it) } ?: return@mapNotNull null
-            val poster = a.selectFirst("img.poster")?.attr("src")?.let { fixUrlNull(it) }
-            val title  = a.selectFirst(".card-overlay h5.card-title")
-                ?.text()?.trim()
-                ?: a.selectFirst("img.logo")?.attr("alt")?.removeSuffix(" Logo")
-                ?: a.selectFirst("img.poster")?.attr("alt")?.removeSuffix(" Poster")
-                ?: href.substringAfterLast('/').replace('-', ' ')
-
-            if (wantSeries) {
-                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                    this.posterUrl = poster
-                }
-            } else {
-                newMovieSearchResponse(title, href, TvType.Movie) {
-                    this.posterUrl = poster
-                }
-            }
+    private fun Element.toSeriesCard(): SearchResponse? {
+        val href = attr("href").takeIf { it.isNotBlank() } ?: return null
+        val url = if (href.startsWith("http")) href else fixUrl(href)
+        val title = cardTitle().ifBlank { url.substringAfterLast("/").replace("-", " ") }
+        val poster = posterUrl()
+        return newTvSeriesSearchResponse(title, url, TvType.TvSeries) {
+            this.posterUrl = poster
         }
     }
 
-    /* -------------------- Search (client-side) -------------------- */
-
-    override suspend fun search(query: String): List<SearchResponse> {
-        val doc = app.get(mainUrl, referer = mainUrl).document
-        val all = parseCards(doc, wantSeries = false) + parseCards(doc, wantSeries = true)
-        val q = query.trim().lowercase()
-        return all.filter { it.name?.lowercase()?.contains(q) == true }
-    }
-
-    override suspend fun quickSearch(query: String) = search(query)
-
-    /* -------------------- Load (details) -------------------- */
-
+    /* -------------------- Load (Film / Dizi detay) -------------------- */
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url, referer = mainUrl).document
 
-        // Ortak görsel
-        val poster = doc.selectFirst("""meta[property="og:image"]""")?.attr("content")
-            ?: doc.selectFirst("""img.poster""")?.attr("src")
+        val poster = fixUrlNull(
+            doc.selectFirst("""meta[property="og:image"]""")?.attr("content")
+                ?: doc.selectFirst("""meta[name="twitter:image"]""")?.attr("content")
+        )
 
-        // Film mi, dizi mi?
         return when {
             url.contains("/film/") -> {
                 val title = doc.selectFirst("h1.fw-light")?.text()?.trim()
-                    ?: doc.selectFirst("title")?.text()?.substringBefore(" - ")?.trim()
+                    ?: doc.selectFirst("title")?.text()?.substringBefore("-")?.trim()
                     ?: "Film"
-
-                val plot = doc.selectFirst("#video")?.parent()?.selectFirst("p.lead, p.lead.text-body-secondary")
-                    ?.text()?.trim()
-
                 newMovieLoadResponse(title, url, TvType.Movie, url) {
-                    this.posterUrl = fixUrlNull(poster)
-                    this.plot = plot
+                    this.posterUrl = poster
                 }
             }
 
             url.contains("/dizi/") -> {
-                // Dizi ana sayfası: bölüm kartlarını topla
                 val seriesTitle = doc.selectFirst("h4")?.text()?.trim()
-                    ?: doc.selectFirst("h1.fw-light")?.text()?.trim()
-                    ?: doc.selectFirst("""meta[property="og:title"]""")?.attr("content")
+                    ?: doc.selectFirst("title")?.text()?.substringBefore("-")?.trim()
                     ?: "Dizi"
 
-                val description = doc.selectFirst("p.lead")?.text()?.trim()
-                val eps = mutableListOf<Episode>()
+                // Bölümler: dizi sayfasındaki kart gridindeki <a class="bolum" href="/dizi/.../1/slug">
+                val eps = doc.select("""a.bolum[href^="/dizi/"]""").mapNotNull { a ->
+                    val href = a.attr("href")
+                    val epUrl = if (href.startsWith("http")) href else fixUrl(href)
+                    val epNum = Regex("/(\\d+)/[^/]+$").find(href)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                    val name = a.selectFirst(".card-title")?.ownText()?.trim()
+                        ?: a.attr("title").ifBlank { a.text() }
+                    val preview = a.selectFirst(".preview")?.attr("data-bg")
+                        ?.replace("^//".toRegex(), "https://")
 
-                // Önizleme grid
-                doc.select("""a.bolum[href^="/dizi/"]""").forEach { a ->
-                    val href = a.attr("href")?.let { fixUrl(it) } ?: return@forEach
-                    val h5 = a.selectFirst("h5.card-title")?.text()?.trim().orEmpty()
-                    // Başlık genelde: "<noInSerie>)Bölüm Adı"
-                    val epNum = Regex("""(\d+)\)""").find(h5)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                    val name = h5.substringAfter(")").ifBlank { h5 }
-
-                    eps += newEpisode(href) {
+                    newEpisode(epUrl) {
                         this.name = name
                         this.episode = epNum
-                    }
-                }
-
-                // Eğer ana grid yoksa, aşağıdaki sezon/bölüm listesine de bak
-                if (eps.isEmpty()) {
-                    doc.select("""div.album a.bolum[href^="/dizi/"]""").forEach { a ->
-                        val href = a.attr("href")?.let { fixUrl(it) } ?: return@forEach
-                        val h5 = a.selectFirst("h5.card-title")?.text()?.trim().orEmpty()
-                        val epNum = Regex("""(\d+)\)""").find(h5)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                        val name = h5.substringAfter(")").ifBlank { h5 }
-                        eps += newEpisode(href) {
-                            this.name = name
-                            this.episode = epNum
-                        }
+                        this.season = 1 // linkte sezon bilgisi bulunmuyor → 1
+                        this.posterUrl = preview
                     }
                 }
 
                 newTvSeriesLoadResponse(seriesTitle, url, TvType.TvSeries, eps) {
-                    this.posterUrl = fixUrlNull(poster)
-                    this.plot = description
+                    this.posterUrl = poster
                 }
             }
 
@@ -150,72 +121,58 @@ class CizgiVeDizi : MainAPI() {
         }
     }
 
-    /* -------------------- Links (player) -------------------- */
-
+    /* -------------------- Links (Sibnet embed → MP4 / m3u8) -------------------- */
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // data: film sayfası veya bölüm sayfası URL’si
-        val page = app.get(data, referer = mainUrl)
-        val doc = page.document
+        // İzleme sayfasındaki iframe
+        val doc = app.get(data, referer = mainUrl).document
+        val iframeSrc = doc.selectFirst("#video iframe[src]")?.attr("src")
+            ?: doc.selectFirst("iframe[src]")?.attr("src")
+            ?: return false
 
-        // 1) #video > iframe[src]
-        val iframe = doc.selectFirst("#video iframe[src]")?.attr("src")?.let { fixUrl(it) }
-        if (iframe != null) {
-            // a) Önce bilinen extractor’lara bırak
-            if (loadExtractor(iframe, referer = data, subtitleCallback = subtitleCallback, callback = callback)) {
-                return true
-            }
-            // b) Fallback: iframe sayfasından MP4’leri çıkar
-            val ifDoc = app.get(iframe, referer = data)
-            val body = ifDoc.text
-            // Yaygın kalıplar: .mp4 linkleri veya playerjs/file:"...mp4"
-            val mp4s = Regex("""https?://[^\s"'\\]+\.mp4[^\s"'\\]*""")
-                .findAll(body).map { it.value }.distinct().toList()
+        val embed = if (iframeSrc.startsWith("http")) iframeSrc else fixUrl(iframeSrc)
+        val body = app.get(embed, referer = data).text
+        var yielded = false
+        val headers = mapOf("Referer" to embed)
 
-            if (mp4s.isNotEmpty()) {
-                mp4s.forEach { url ->
-                    val isM3u8 = url.contains(".m3u8", true)
-                    val link = ExtractorLink(
-                        source  = name,
-                        name    = if (isM3u8) "HLS" else "MP4",
-                        url     = url,
-                        referer = iframe,
-                        quality = Qualities.Unknown.value,
-                        isM3u8  = isM3u8,
-                        headers = mapOf("Referer" to iframe),
-                        type    = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.DIRECT
-                    )
-                    callback(link)
-                }
-                return true
-            }
-        }
+        // 1) MP4
+        val mp4s = Regex("""https?://[^\s"'<>]+\.mp4[^\s"'<>]*""", RegexOption.IGNORE_CASE)
+            .findAll(body).map { it.value }.distinct().toList()
 
-        // 2) İframe bulamadıysan, sayfa HTML’inde doğrudan video linki aramayı dene
-        val directMp4s = Regex("""https?://[^\s"'\\]+\.mp4[^\s"'\\]*""")
-            .findAll(doc.html()).map { it.value }.distinct().toList()
-        if (directMp4s.isNotEmpty()) {
-            directMp4s.forEach { url ->
-                callback(
-                    ExtractorLink(
-                        source  = name,
-                        name    = "MP4",
-                        url     = url,
-                        referer = data,
-                        quality = Qualities.Unknown.value,
-                        isM3u8  = false,
-                        headers = mapOf("Referer" to data),
-                        type    = ExtractorLinkType.DIRECT
-                    )
+        for (u in mp4s) {
+            val q = Regex("""(\d{3,4})p""").find(u)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?: Qualities.P720.value
+            callback(
+                ExtractorLink(
+                    source = name,
+                    name = "Video",
+                    url = u,
+                    referer = embed,
+                    quality = q,
+                    headers = headers // enum/type vermeden eski uyumlu ctor
                 )
-            }
-            return true
+            )
+            yielded = true
         }
 
-        return false
+        // 2) HLS (yedek)
+        val m3u8s = Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""", RegexOption.IGNORE_CASE)
+            .findAll(body).map { it.value }.distinct().toList()
+
+        for (hls in m3u8s) {
+            M3u8Helper.generateM3u8(
+                source = name,
+                streamUrl = hls,
+                referer = embed,
+                name = "HLS"
+            ).forEach(callback)
+            yielded = true
+        }
+
+        return yielded
     }
 }
