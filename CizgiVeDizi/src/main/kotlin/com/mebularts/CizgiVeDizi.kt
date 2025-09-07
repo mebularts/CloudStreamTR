@@ -21,13 +21,11 @@ class CizgiVeDizi : MainAPI() {
     override val supportedTypes = setOf(TvType.TvSeries, TvType.Movie)
     override var sequentialMainPage = true
 
-    /** Site bazen www’siz kullanılıyor, otomatik dene */
     private val mirrors = listOf(
         "https://www.cizgivedizi.com",
         "https://cizgivedizi.com"
     )
 
-    /** Hafif CF/anti-robot yakalayıcı: başlıkta “Just a moment…” görürse tekrar dener */
     private val softCf by lazy {
         object : Interceptor {
             override fun intercept(chain: Interceptor.Chain): Response {
@@ -35,7 +33,6 @@ class CizgiVeDizi : MainAPI() {
                 val body = res.peekBody(640 * 1024).string()
                 val title = runCatching { Jsoup.parse(body).title() }.getOrNull().orEmpty()
                 return if (title.equals("Just a moment...", true)) {
-                    // basit tekrar dene
                     chain.proceed(chain.request())
                 } else res
             }
@@ -54,7 +51,6 @@ class CizgiVeDizi : MainAPI() {
         val url = request.data.addPage(page)
         val doc = getDoc(url)
 
-        // Verdiğin yapıya göre: #main içindeki <a href="..."> kartları
         val anchors = doc.select("#main > a[href], .album #main > a[href]")
         val cards = anchors.mapNotNull { it.toCard() }
 
@@ -63,7 +59,6 @@ class CizgiVeDizi : MainAPI() {
     }
 
     private fun Element.cardPoster(): String? {
-        // poster-div içindeki img.poster öncelikli
         val img = selectFirst(".poster-div img.poster")
             ?: selectFirst("img.poster")
             ?: selectFirst("img.card-img-top")
@@ -92,7 +87,6 @@ class CizgiVeDizi : MainAPI() {
     /* ===================== SEARCH ===================== */
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // Sitede net bir arama ucu paylaşılmadı; yaygın kalıpları dene:
         val tries = listOf(
             "$mainUrl/ara?q=${query.encodeURL()}",
             "$mainUrl/search?q=${query.encodeURL()}",
@@ -102,7 +96,6 @@ class CizgiVeDizi : MainAPI() {
         val out = mutableListOf<SearchResponse>()
         for (u in tries) {
             val doc = runCatching { getDoc(u) }.getOrNull() ?: continue
-            // listeler aynı #main düzenine oturuyor
             doc.select("#main > a[href]").forEach { a -> a.toCard()?.let(out::add) }
             if (out.isNotEmpty()) break
         }
@@ -126,7 +119,6 @@ class CizgiVeDizi : MainAPI() {
                     ?: doc.selectFirst("""meta[property="og:title"]""")?.attr("content")?.trim()
                     ?: doc.title().substringBefore("|").trim()
 
-                // açıklama (bilgi amaçlı — player linkleri loadLinks’te çözülecek)
                 val plot = doc.selectFirst("p.lead.text-body-secondary, p.lead")?.text()?.trim()
 
                 newMovieLoadResponse(title, url, TvType.Movie, url) {
@@ -136,7 +128,6 @@ class CizgiVeDizi : MainAPI() {
             }
 
             url.contains("/dizi/") -> {
-                // Dizi adı sayfada <div><h4>…</h4></div> şeklinde veriliyor olabilir
                 val title = doc.selectFirst("div > h4")?.text()?.trim()
                     ?: doc.selectFirst("h1, h2")?.text()?.trim()
                     ?: doc.selectFirst("""meta[property="og:title"]""")?.attr("content")?.trim()
@@ -144,17 +135,15 @@ class CizgiVeDizi : MainAPI() {
 
                 val description = doc.selectFirst("p.lead")?.text()?.trim()
 
-                // Bölümler: tüm varyasyonlar için a.bolum
                 val episodes = doc.select("a.bolum[href]")
                     .distinctBy { it.absUrl("href") }
                     .mapNotNull { a ->
                         val href = a.absUrl("href")
-                        // H5 başlık içinde: <div class=noInSeason>…</div><div class=noInSerie>…</div>)Ad
                         val h5 = a.selectFirst("h5.card-title")
                         val sTxt = h5?.selectFirst(".noInSeason")?.text()?.trim().orEmpty()
                         val eTxt = h5?.selectFirst(".noInSerie")?.text()?.trim().orEmpty()
 
-                        val season = sTxt.toIntOrNull() ?: 1 // boşsa tek sezon say
+                        val season = sTxt.toIntOrNull() ?: 1
                         val episode = eTxt.toIntOrNull()
                             ?: Regex("""/dizi/[^/]+/[^/]+/(\d+)/""").find(href)?.groupValues?.getOrNull(1)?.toIntOrNull()
 
@@ -194,10 +183,8 @@ class CizgiVeDizi : MainAPI() {
             val src = fr.absUrl("src")
             if (src.isBlank()) return@forEach
 
-            // Bilinen host’ları Cloudstream extractor’larına bırak
             if (loadExtractor(src, data, subtitleCallback, callback)) return true
 
-            // Embed sayfasının kendi HTML’inde .m3u8 arayalım (Sibnet vs.)
             val text = runCatching { app.get(src, referer = data).text }.getOrNull().orEmpty()
             if (tryM3u8(text, src, callback)) return true
         }
@@ -205,14 +192,19 @@ class CizgiVeDizi : MainAPI() {
         // 2) sayfa HTML'i içinde m3u8
         if (tryM3u8(page.outerHtml(), data, callback)) return true
 
-        // 3) script’ler içinde m3u8 (jwplayer/plyr)
+        // 3) script’ler içinde m3u8
         val scripts = page.select("script").joinToString("\n") { it.data() }
         if (tryM3u8(scripts, data, callback)) return true
 
         return false
     }
 
-    private fun tryM3u8(html: String, referer: String, callback: (ExtractorLink) -> Unit): Boolean {
+    /** DÜZELTME: generateM3u8 suspend olduğu için bu fonksiyon da suspend olmalı */
+    private suspend fun tryM3u8(
+        html: String,
+        referer: String,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
         var any = false
         Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
             .findAll(html)
@@ -238,9 +230,7 @@ class CizgiVeDizi : MainAPI() {
         if (page <= 1) this else if ('?' in this) "$this&page=$page" else "$this?page=$page"
 
     private suspend fun getDoc(u: String): Document {
-        // doğrudan dene
         runCatching { return app.get(u, interceptor = softCf).document }
-        // ayna domain’leri sırayla dene
         for (m in mirrors) {
             val alt = swapHost(u, m)
             val doc = runCatching { app.get(alt, interceptor = softCf).document }.getOrNull()
