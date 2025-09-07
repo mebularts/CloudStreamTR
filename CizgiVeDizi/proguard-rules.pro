@@ -1,0 +1,2 @@
+-keep class com.lagradost.cloudstream3.plugins.** { *; }
+-keep @com.lagradost.cloudstream3.plugins.CloudstreamPlugin class * { *; }
